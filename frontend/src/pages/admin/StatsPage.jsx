@@ -2,18 +2,26 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import {
   ChartBar, FileText, Database, Globe, ChatCircle, Users, Warning, CheckCircle,
+  ClockCounterClockwise, ShieldCheck,
 } from "@phosphor-icons/react";
 
 export default function StatsPage() {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [audit, setAudit] = useState([]);
 
   useEffect(() => {
     let mounted = true;
     const load = async () => {
       try {
-        const { data } = await api.get("/admin/stats");
-        if (mounted) setStats(data);
+        const [statsR, auditR] = await Promise.all([
+          api.get("/admin/stats"),
+          api.get("/audit/?limit=15").catch(() => ({ data: { items: [] } })),
+        ]);
+        if (mounted) {
+          setStats(statsR.data);
+          setAudit(auditR.data.items || []);
+        }
       } catch (e) {
         console.error(e);
       } finally {
@@ -77,36 +85,39 @@ export default function StatsPage() {
           </Section>
 
           <Section title="Document-Type Chunking Strategy">
-            <div className="border border-slate-300 overflow-hidden">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-slate-100">
-                    <th className="text-left px-3 py-2 border-b border-slate-300 font-mono text-[10px] uppercase tracking-wider text-slate-600">Type</th>
-                    <th className="text-left px-3 py-2 border-b border-slate-300 font-mono text-[10px] uppercase tracking-wider text-slate-600">Chunk Size</th>
-                    <th className="text-left px-3 py-2 border-b border-slate-300 font-mono text-[10px] uppercase tracking-wider text-slate-600">Overlap</th>
-                    <th className="text-left px-3 py-2 border-b border-slate-300 font-mono text-[10px] uppercase tracking-wider text-slate-600">Type Boost</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[
-                    ["SOPs / Procedures", "512", "100", "1.2×"],
-                    ["Regulatory (ISO/OSHA)", "768", "150", "1.0×"],
-                    ["Incident Reports", "256", "50", "1.1×"],
-                    ["HAZOP / Risk", "512", "128", "1.3×"],
-                    ["Training Materials", "384", "75", "1.0×"],
-                    ["Permits / Compliance", "512", "100", "1.1×"],
-                    ["Policies", "512", "100", "1.4×"],
-                    ["MSDS / SDS", "384", "64", "1.2×"],
-                  ].map(([t, cs, co, b]) => (
-                    <tr key={t} className="border-b border-slate-200 last:border-b-0 hover:bg-slate-50">
-                      <td className="px-3 py-2 font-medium">{t}</td>
-                      <td className="px-3 py-2 font-mono text-xs">{cs}</td>
-                      <td className="px-3 py-2 font-mono text-xs">{co}</td>
-                      <td className="px-3 py-2 font-mono text-xs text-blue-700">{b}</td>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="lg:col-span-2 border border-slate-300 overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-slate-100">
+                      <th className="text-left px-3 py-2 border-b border-slate-300 font-mono text-[10px] uppercase tracking-wider text-slate-600">Type</th>
+                      <th className="text-left px-3 py-2 border-b border-slate-300 font-mono text-[10px] uppercase tracking-wider text-slate-600">Chunk Size</th>
+                      <th className="text-left px-3 py-2 border-b border-slate-300 font-mono text-[10px] uppercase tracking-wider text-slate-600">Overlap</th>
+                      <th className="text-left px-3 py-2 border-b border-slate-300 font-mono text-[10px] uppercase tracking-wider text-slate-600">Type Boost</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {[
+                      ["SOPs / Procedures", "512", "100", "1.2×"],
+                      ["Regulatory (ISO/OSHA)", "768", "150", "1.0×"],
+                      ["Incident Reports", "256", "50", "1.1×"],
+                      ["HAZOP / Risk", "512", "128", "1.3×"],
+                      ["Training Materials", "384", "75", "1.0×"],
+                      ["Permits / Compliance", "512", "100", "1.1×"],
+                      ["Policies", "512", "100", "1.4×"],
+                      ["MSDS / SDS", "384", "64", "1.2×"],
+                    ].map(([t, cs, co, b]) => (
+                      <tr key={t} className="border-b border-slate-200 last:border-b-0 hover:bg-slate-50">
+                        <td className="px-3 py-2 font-medium">{t}</td>
+                        <td className="px-3 py-2 font-mono text-xs">{cs}</td>
+                        <td className="px-3 py-2 font-mono text-xs">{co}</td>
+                        <td className="px-3 py-2 font-mono text-xs text-blue-700">{b}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <AuditWidget items={audit} />
             </div>
           </Section>
         </>
@@ -152,6 +163,51 @@ function Stat({ icon: Icon, label, value, sublabel, accent }) {
         {value ?? "—"}
       </div>
       <div className="text-xs text-slate-500 mt-1">{sublabel}</div>
+    </div>
+  );
+}
+
+const ACTION_LABELS = {
+  upload_document: "Upload",
+  delete_document: "Delete doc",
+  reprocess_document: "Reprocess",
+  create_web_source: "Add URL",
+  delete_web_source: "Remove URL",
+  scrape_web_source: "Scrape",
+  acknowledge_change: "Ack change",
+  delete_chat_session: "Delete chat",
+};
+
+function AuditWidget({ items }) {
+  return (
+    <div className="border border-slate-300 bg-white flex flex-col" data-testid="audit-widget">
+      <div className="px-3 py-2 bg-slate-100 border-b border-slate-300 flex items-center gap-2">
+        <ShieldCheck size={14} weight="bold" className="text-slate-700" />
+        <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-slate-600 flex-1">// Recent admin activity</div>
+        <ClockCounterClockwise size={11} className="text-slate-400" />
+      </div>
+      <div className="flex-1 max-h-[420px] overflow-y-auto">
+        {items.length === 0 ? (
+          <div className="px-3 py-6 text-center font-mono text-[10px] uppercase tracking-wider text-slate-400">
+            No admin actions yet
+          </div>
+        ) : items.map((it, i) => (
+          <div key={it.id || i} className="px-3 py-2 border-b border-slate-100 last:border-b-0 hover:bg-slate-50" data-testid={`audit-${i}`}>
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-[10px] uppercase tracking-wider px-1.5 py-0.5 bg-blue-50 border border-blue-200 text-blue-700">
+                {ACTION_LABELS[it.action] || it.action}
+              </span>
+              <span className="text-[10px] font-mono text-slate-500">{(it.created_at || "").slice(11, 19)}</span>
+            </div>
+            <div className="text-xs text-slate-700 mt-1 truncate">
+              {it.user_email}
+              {it.details?.title && <span className="text-slate-500"> · {it.details.title}</span>}
+              {it.details?.url && <span className="text-slate-500"> · {it.details.url.slice(0, 40)}{it.details.url.length > 40 ? "…" : ""}</span>}
+              {it.details?.filename && <span className="text-slate-500"> · {it.details.filename}</span>}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

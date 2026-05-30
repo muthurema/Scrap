@@ -1,7 +1,9 @@
 """
-Document ingestion: parse → chunk (doc-type aware) → embed → store in Qdrant.
+Document ingestion: parse (with OCR fallback) → injection-scan → chunk (doc-type aware)
+→ deduplicate → embed → store hybrid vectors in Qdrant.
 """
 import io
+import hashlib
 from typing import Optional
 from loguru import logger
 
@@ -13,6 +15,7 @@ from app.config import (
     get_chunk_config, get_combined_boost, detect_doc_type,
 )
 from app.vector_store import VectorStoreService
+from app.security import scan_document_for_injection
 
 settings = get_settings()
 _tokenizer = tiktoken.get_encoding("cl100k_base")
@@ -24,6 +27,23 @@ def _count_tokens(text: str) -> int:
 
 # ── Parsers ───────────────────────────────────────────────────────────────────
 
+def _ocr_pdf(file_bytes: bytes) -> str:
+    """OCR fallback for image-only PDFs."""
+    try:
+        from pdf2image import convert_from_bytes
+        import pytesseract
+        images = convert_from_bytes(file_bytes, dpi=200)
+        out = []
+        for i, img in enumerate(images):
+            text = pytesseract.image_to_string(img)
+            if text.strip():
+                out.append(f"[Page {i+1}]\n{text}")
+        return "\n\n".join(out)
+    except Exception as e:
+        logger.warning(f"OCR failed: {e}")
+        return ""
+
+
 def parse_pdf(file_bytes: bytes) -> str:
     import pdfplumber
     parts = []
@@ -32,7 +52,14 @@ def parse_pdf(file_bytes: bytes) -> str:
             t = page.extract_text()
             if t and t.strip():
                 parts.append(t)
-    return "\n\n".join(parts)
+    text = "\n\n".join(parts)
+    # If we got <50 chars from a multi-page PDF, attempt OCR fallback
+    if len(text.strip()) < 50:
+        logger.info(f"PDF text extraction yielded {len(text)} chars — attempting OCR fallback")
+        ocr_text = _ocr_pdf(file_bytes)
+        if ocr_text:
+            return ocr_text
+    return text
 
 
 def parse_docx(file_bytes: bytes) -> str:
@@ -64,10 +91,19 @@ def parse_txt(file_bytes: bytes) -> str:
     return file_bytes.decode("utf-8", errors="replace")
 
 
+def parse_image(file_bytes: bytes) -> str:
+    """OCR for image uploads."""
+    from PIL import Image
+    import pytesseract
+    img = Image.open(io.BytesIO(file_bytes))
+    return pytesseract.image_to_string(img)
+
+
 PARSERS = {
     "pdf": parse_pdf, "docx": parse_docx,
     "xlsx": parse_xlsx, "xls": parse_xlsx,
     "txt": parse_txt, "csv": parse_txt, "md": parse_txt,
+    "png": parse_image, "jpg": parse_image, "jpeg": parse_image,
 }
 
 
@@ -80,6 +116,10 @@ def parse_document(file_bytes: bytes, file_ext: str) -> str:
 
 
 # ── Chunker ───────────────────────────────────────────────────────────────────
+
+def _chunk_hash(text: str) -> str:
+    return hashlib.sha256(text.strip().lower().encode("utf-8")).hexdigest()
+
 
 def chunk_text(
     text: str,
@@ -98,11 +138,18 @@ def chunk_text(
         length_function=_count_tokens,
         separators=["\n\n", "\n", ". ", " ", ""],
     )
-    chunks = splitter.split_text(text)
+    raw_chunks = splitter.split_text(text)
+
     out = []
-    for i, c in enumerate(chunks):
-        if not c.strip():
+    seen_hashes: set[str] = set()
+    for i, c in enumerate(raw_chunks):
+        c_stripped = c.strip()
+        if len(c_stripped) < 30:
             continue
+        h = _chunk_hash(c_stripped)
+        if h in seen_hashes:
+            continue
+        seen_hashes.add(h)
         chunk_id = f"{doc_id}_{i:04d}"
         payload = {
             "chunk_id": chunk_id,
@@ -113,10 +160,11 @@ def chunk_text(
             "title": title,
             "chunk_index": i,
             "priority_boost": boost,
+            "chunk_hash": h,
             **(extra_metadata or {}),
         }
         out.append({"id": chunk_id, "text": c, "payload": payload})
-    logger.info(f"Chunked doc {doc_id} → {len(out)} chunks (type={doc_type.value}, boost={boost})")
+    logger.info(f"Chunked doc {doc_id} → {len(out)} unique chunks (type={doc_type.value}, boost={boost})")
     return out
 
 
@@ -135,10 +183,17 @@ class IngestionService:
         doc_type: Optional[DocumentType],
         source: DocumentSource,
         extra_metadata: Optional[dict] = None,
-    ) -> int:
+    ) -> tuple[int, list[str]]:
         raw_text = parse_document(file_bytes, file_ext)
         if not raw_text.strip():
             raise ValueError("Document appears empty or unreadable.")
+
+        injection_findings = scan_document_for_injection(raw_text)
+        if injection_findings:
+            logger.warning(
+                f"Doc {doc_id} ({title}): {len(injection_findings)} possible injection patterns: "
+                f"{injection_findings[:2]}"
+            )
 
         if doc_type is None or doc_type == DocumentType.GENERAL:
             detected = detect_doc_type((title + " " + raw_text[:2000]))
@@ -166,7 +221,7 @@ class IngestionService:
         )
         await self.vector_store.upsert_chunks(collection, chunks)
         logger.info(f"Ingested {len(chunks)} chunks for doc {doc_id} → {collection}")
-        return len(chunks)
+        return len(chunks), injection_findings
 
     async def delete_document(self, doc_id: str) -> None:
         for coll in (settings.qdrant_collection_company, settings.qdrant_collection_base):

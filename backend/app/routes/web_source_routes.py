@@ -1,13 +1,12 @@
-"""Web Sources routes — scrape URLs into the knowledge bank."""
+"""Web Sources routes — with SSRF protection + audit logging."""
 import uuid
 import hashlib
 import re
 from datetime import datetime, timezone
 from typing import Optional
-from urllib.parse import urljoin, urlparse
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.db import web_sources_col
 from app.schemas import WebSourceCreate, WebSourceOut, WebSourceScrapeResult
@@ -15,6 +14,8 @@ from app.auth import get_current_user, require_superadmin
 from app.config import DocumentType, DocumentSource, WebSourceScope
 from app.vector_store import get_vector_store
 from app.ingestion import IngestionService
+from app.security import is_safe_url
+from app.audit import audit
 
 router = APIRouter(prefix="/web-sources", tags=["Web Sources"])
 
@@ -52,13 +53,21 @@ def _content_hash(text: str) -> str:
 
 
 async def _fetch_url(url: str) -> tuple[str, str]:
+    safe, err = is_safe_url(url)
+    if not safe:
+        raise ValueError(f"URL blocked by SSRF check: {err}")
     async with httpx.AsyncClient(
         follow_redirects=True, timeout=30.0,
         headers={"User-Agent": "EHSBot/1.0 (EHS knowledge aggregator)"},
     ) as client:
         r = await client.get(url)
         r.raise_for_status()
-        return r.text, str(r.url)
+        # Final URL must also be safe (defeat open-redirect SSRF)
+        final = str(r.url)
+        safe2, err2 = is_safe_url(final)
+        if not safe2:
+            raise ValueError(f"Redirected URL blocked by SSRF check: {err2}")
+        return r.text, final
 
 
 def _can_manage(user: dict, source: dict) -> bool:
@@ -69,12 +78,14 @@ def _can_manage(user: dict, source: dict) -> bool:
     return False
 
 
-# ── CRUD ──────────────────────────────────────────────────────────────────────
-
 @router.post("/", response_model=WebSourceOut, status_code=201)
-async def create_web_source(payload: WebSourceCreate, current_user: dict = Depends(get_current_user)):
+async def create_web_source(payload: WebSourceCreate, request: Request, current_user: dict = Depends(get_current_user)):
     if payload.scope == WebSourceScope.PLATFORM and current_user.get("role") != "superadmin":
         raise HTTPException(403, "Only superadmin can add platform-level web sources")
+
+    safe, err = is_safe_url(str(payload.url))
+    if not safe:
+        raise HTTPException(400, f"URL rejected: {err}")
 
     existing = await web_sources_col().find_one({"url": str(payload.url)})
     if existing:
@@ -109,6 +120,9 @@ async def create_web_source(payload: WebSourceCreate, current_user: dict = Depen
         "created_at": _now_iso(),
     }
     await web_sources_col().insert_one(doc)
+    await audit(user=current_user, action="create_web_source", resource_type="web_source",
+                resource_id=doc["id"], request=request,
+                details={"url": doc["url"], "scope": doc["scope"]})
     return _ws_to_out(doc)
 
 
@@ -124,7 +138,7 @@ async def list_web_sources(current_user: dict = Depends(get_current_user)):
 
 
 @router.delete("/{source_id}", status_code=204)
-async def delete_web_source(source_id: str, current_user: dict = Depends(get_current_user)):
+async def delete_web_source(source_id: str, request: Request, current_user: dict = Depends(get_current_user)):
     src = await web_sources_col().find_one({"id": source_id})
     if not src:
         raise HTTPException(404, "Web source not found")
@@ -135,15 +149,14 @@ async def delete_web_source(source_id: str, current_user: dict = Depends(get_cur
     doc_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"web:{source_id}"))
     await ingestion.delete_document(doc_id)
     await web_sources_col().delete_one({"id": source_id})
+    await audit(user=current_user, action="delete_web_source", resource_type="web_source",
+                resource_id=source_id, request=request, details={"url": src.get("url")})
 
 
-@router.post("/{source_id}/scrape", response_model=WebSourceScrapeResult)
-async def scrape_now(source_id: str, current_user: dict = Depends(get_current_user)):
+async def _scrape_source(source_id: str) -> WebSourceScrapeResult:
     src = await web_sources_col().find_one({"id": source_id})
     if not src:
         raise HTTPException(404, "Web source not found")
-    if not _can_manage(current_user, src):
-        raise HTTPException(403, "Access denied")
 
     result = {
         "web_source_id": source_id, "url": src["url"],
@@ -180,13 +193,10 @@ async def scrape_now(source_id: str, current_user: dict = Depends(get_current_us
         scope = WebSourceScope(src["scope"])
         qdrant_src = DocumentSource.CLIENT_WEB if scope == WebSourceScope.CLIENT else DocumentSource.PLATFORM_WEB
 
-        chunk_count = await ingestion.ingest_document(
-            file_bytes=text.encode("utf-8"),
-            file_ext="txt",
-            doc_id=doc_id,
-            title=src["label"],
-            doc_type=DocumentType(src["doc_type"]),
-            source=qdrant_src,
+        chunk_count, _ = await ingestion.ingest_document(
+            file_bytes=text.encode("utf-8"), file_ext="txt",
+            doc_id=doc_id, title=src["label"],
+            doc_type=DocumentType(src["doc_type"]), source=qdrant_src,
             extra_metadata={
                 "web_source_id": source_id, "url": src["url"],
                 "company_id": src.get("company_id") or "", "filename": src["url"],
@@ -216,13 +226,29 @@ async def scrape_now(source_id: str, current_user: dict = Depends(get_current_us
     return WebSourceScrapeResult(**result)
 
 
+@router.post("/{source_id}/scrape", response_model=WebSourceScrapeResult)
+async def scrape_now(source_id: str, request: Request, current_user: dict = Depends(get_current_user)):
+    src = await web_sources_col().find_one({"id": source_id})
+    if not src:
+        raise HTTPException(404, "Web source not found")
+    if not _can_manage(current_user, src):
+        raise HTTPException(403, "Access denied")
+    res = await _scrape_source(source_id)
+    await audit(user=current_user, action="scrape_web_source", resource_type="web_source",
+                resource_id=source_id, request=request,
+                details={"url": src.get("url"), "chunks_stored": res.chunks_stored,
+                         "changed": res.changed, "error": res.error})
+    return res
+
+
 @router.post("/{source_id}/acknowledge-change", response_model=WebSourceOut)
-async def acknowledge(source_id: str, current_user: dict = Depends(require_superadmin)):
+async def acknowledge(source_id: str, request: Request, current_user: dict = Depends(require_superadmin)):
     src = await web_sources_col().find_one_and_update(
-        {"id": source_id},
-        {"$set": {"is_change_pending_review": False}},
+        {"id": source_id}, {"$set": {"is_change_pending_review": False}},
         return_document=True,
     )
     if not src:
         raise HTTPException(404, "Web source not found")
+    await audit(user=current_user, action="acknowledge_change", resource_type="web_source",
+                resource_id=source_id, request=request)
     return _ws_to_out(src)

@@ -367,7 +367,7 @@ async def main():
         })
 
         try:
-            chunk_count = await ingestion.ingest_document(
+            chunk_count, _ = await ingestion.ingest_document(
                 file_bytes=entry["text"].encode("utf-8"),
                 file_ext="txt",
                 doc_id=doc_id,

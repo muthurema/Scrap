@@ -1,0 +1,47 @@
+{
+  "summary": "Iteration 2 testing complete. All 14 new backend pytest cases PASS (100%) covering: SSE streaming (session/sources/token/done events with final_text+confidence), HyDE+hybrid+rerank chat returning ISO 45001 as top source with [1] citations, prompt-injection refusal exact phrase, SSRF blocking (169.254.169.254 + localhost both return 400 with 'private/reserved/localhost' in error), public URL passes, audit log create+delete entries with user_email & ip, audit 403 for non-superadmin, hallucination guardrail on benzene (does not invent ppm), document upload + processing + audit upload_document entry + uploaded doc as top source, admin/stats >=7 docs >=9 chunks qdrant healthy, sessions list. Frontend: Login → /admin/stats works; Admin Stats shows all 8 stat tiles + Knowledge Source Priority (1.5x/1.3x/1.0x) + Document-Type Chunking Strategy table + Recent Admin Activity widget (data-testid='audit-widget') populated with REMOVE URL / ADD URL / UPLOAD / DELETE DOC entries with timestamps and admin@ehsrag.com; Chat page streams a substantive response (5680 char body, streaming-dot disappears, 8 inline citation chips [data-testid='inline-citation-1..8'], footer citation chips, title attr on citation shows source title 'OSHA Confined Space Entry Requirements (29 CFR 1910.146)'); NEW CHAT clears then re-loading a session via [data-testid='session-{id}'] restores history (2356 chars); Admin Web Sources Add URL dialog opens, submitting http://localhost shows toast 'URL rejected: Host localhost is blocked' (SSRF UI guard PASS).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Admin sidebar", "issues": ["Logout button is icon-only and lacks data-testid='logout-button' (icon-only ArrowRightFromBracket next to 'EHS Superadmin'); functionally present but not easily testable via data-testid. Suggest adding data-testid='logout-button' for stability."]},
+      {"screen": "Citation hover", "issues": ["Inline citation chips expose source title only via the native HTML `title` attribute; no Radix Tooltip role='tooltip' is rendered on hover. Browser tooltip works, but no animated/styled tooltip — acceptable but not ideal UX."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_ehs_rag_iteration2.py",
+    "/app/backend/tests/test_ehs_rag_api.py",
+    "/app/test_reports/pytest/pytest_iteration2.xml"
+  ],
+  "action_items": [
+    "Add data-testid='logout-button' to the icon-only logout control in the admin sidebar (currently testable only via icon position).",
+    "Optional: replace native title-attribute tooltips on inline citation chips with a styled Tooltip component for better UX consistency."
+  ],
+  "critical_code_review_comments": [
+    "SSE streaming endpoint /api/chat/stream correctly emits 4 event types (session/sources/token/done) with valid JSON payloads — verified with raw event-stream parsing.",
+    "SSRF guard rejects 169.254.169.254 (AWS metadata) and localhost at the API layer with HTTP 400 and human-readable error — defense-in-depth verified.",
+    "Audit log endpoint /api/audit/ is properly superadmin-gated (403 for normal users) and captures create_web_source / delete_web_source / upload_document actions with user_email + ip fields populated.",
+    "Hallucination guardrail: model declines to invent specific ppm values for benzene when corpus lacks them — guardrail prompt working.",
+    "Prompt injection: 'Ignore previous instructions...' returns exact refusal phrase 'I can only help with EHS questions grounded in your knowledge base' — sanitization active.",
+    "HyDE+Hybrid+Rerank: ISO 45001 question correctly returns ISO 45001 document as the top source with inline [1] citation in response content.",
+    "Frontend SSE consumer in ChatPage.jsx parses events correctly — assistant message grows incrementally and ends with final_text + confidence; no buffering issues observed.",
+    "Recent Admin Activity widget on /admin/stats correctly fetches /api/audit/ and renders action badges + timestamps + user_email + details snippet."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_ehs_rag_iteration2.py"
+  ],
+  "success_rate": {
+    "backend": "100% (14/14 iter2 pytest cases; iteration 1 16/16 still applicable)",
+    "frontend": "~98% (all critical flows pass; minor: missing data-testid on logout icon button)"
+  },
+  "test_credentials": "admin@ehsrag.com / Admin@12345 (superadmin)",
+  "seed_data_creation": "Tests create transient: a normal user itest_user+<ts>@example.com (kept), uploaded TXT doc 'TEST DOC XYZ123 SOP' (deleted by fixture), 1-2 web sources (deleted by fixture). Several chat sessions remain in the admin's sidebar.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All iter2 backend coverage is in /app/backend/tests/test_ehs_rag_iteration2.py (14 cases) plus iter1 /app/backend/tests/test_ehs_rag_api.py (16 cases). The /api/audit/ endpoint returns {items: [...], total: N}. The /api/chat/stream endpoint emits SSE events 'session', 'sources' (data is a JSON list directly), 'token' (multiple), and 'done' (data is {final_text, confidence_score}). Web source dialog uses data-testid 'add-web-source-btn' / 'ws-url' / 'ws-label' / 'add-web-source-submit'-equivalent button labeled 'REGISTER URL'. The chat assistant message renders with inline citation chips data-testid='inline-citation-1..N' carrying the source title in the HTML `title` attribute (no Radix tooltip). The logout button in the admin sidebar lacks a data-testid and is an icon-only button next to the EHS Superadmin user row; identify it by structural position next to the user info. The Recent Admin Activity widget has data-testid='audit-widget'. First chat call after backend boot can take 30-50s; subsequent calls 10-25s due to HyDE + reranking latency.",
+  "rca of the issue": "No bugs found in iter2 scope. Minor a11y/testability suggestion: add data-testid='logout-button' to the icon-only logout control in the admin sidebar so future Playwright runs can target it directly instead of relying on icon-position heuristics."
+}

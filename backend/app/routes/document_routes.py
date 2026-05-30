@@ -1,10 +1,10 @@
-"""Document upload / management routes (superadmin)."""
+"""Document upload / management routes (superadmin) — with audit + injection scan."""
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, BackgroundTasks, Request
 
 from app.db import documents_col
 from app.schemas import DocumentOut, DocumentListResponse
@@ -12,11 +12,12 @@ from app.auth import get_current_user, require_superadmin
 from app.config import get_settings, DocumentType, DocumentSource
 from app.vector_store import get_vector_store
 from app.ingestion import IngestionService
+from app.audit import audit
 
 settings = get_settings()
 router = APIRouter(prefix="/documents", tags=["Documents"])
 
-ALLOWED_EXTENSIONS = {".pdf", ".docx", ".xlsx", ".xls", ".txt", ".csv", ".md"}
+ALLOWED_EXTENSIONS = {".pdf", ".docx", ".xlsx", ".xls", ".txt", ".csv", ".md", ".png", ".jpg", ".jpeg"}
 MAX_SIZE_BYTES = settings.max_upload_size_mb * 1024 * 1024
 
 
@@ -47,10 +48,8 @@ async def _process_document_bg(doc_id: str, file_path: str, file_ext: str):
         with open(file_path, "rb") as f:
             file_bytes = f.read()
 
-        chunk_count = await ingestion.ingest_document(
-            file_bytes=file_bytes,
-            file_ext=file_ext,
-            doc_id=doc_id,
+        chunk_count, injection_findings = await ingestion.ingest_document(
+            file_bytes=file_bytes, file_ext=file_ext, doc_id=doc_id,
             title=doc.get("title") or doc["original_filename"],
             doc_type=DocumentType(doc["doc_type"]),
             source=DocumentSource(doc["source"]),
@@ -62,10 +61,9 @@ async def _process_document_bg(doc_id: str, file_path: str, file_ext: str):
         await documents_col().update_one(
             {"id": doc_id},
             {"$set": {
-                "is_processed": True,
-                "chunk_count": chunk_count,
-                "processed_at": _now_iso(),
-                "processing_error": None,
+                "is_processed": True, "chunk_count": chunk_count,
+                "processed_at": _now_iso(), "processing_error": None,
+                "injection_findings": injection_findings,
             }},
         )
     except Exception as e:
@@ -78,6 +76,7 @@ async def _process_document_bg(doc_id: str, file_path: str, file_ext: str):
 @router.post("/upload", response_model=DocumentOut, status_code=201)
 async def upload_document(
     background_tasks: BackgroundTasks,
+    request: Request,
     file: UploadFile = File(...),
     title: Optional[str] = Form(None),
     description: Optional[str] = Form(None),
@@ -94,10 +93,11 @@ async def upload_document(
     contents = await file.read()
     if len(contents) > MAX_SIZE_BYTES:
         raise HTTPException(413, f"File exceeds {settings.max_upload_size_mb}MB limit")
+    if len(contents) < 16:
+        raise HTTPException(400, "File is empty or too small")
 
     upload_dir = Path(settings.upload_dir)
     upload_dir.mkdir(parents=True, exist_ok=True)
-
     doc_id = str(uuid.uuid4())
     safe_filename = f"{doc_id}{ext}"
     file_path = upload_dir / safe_filename
@@ -105,7 +105,6 @@ async def upload_document(
         f.write(contents)
 
     tag_list = [t.strip() for t in tags.split(",")] if tags else []
-
     doc = {
         "id": doc_id,
         "company_id": current_user.get("company_id"),
@@ -130,17 +129,19 @@ async def upload_document(
     }
     await documents_col().insert_one(doc)
 
-    background_tasks.add_task(_process_document_bg, doc_id, str(file_path), ext.lstrip("."))
+    await audit(user=current_user, action="upload_document", resource_type="document",
+                resource_id=doc_id, request=request,
+                details={"filename": file.filename, "size_bytes": len(contents),
+                         "doc_type": doc_type, "source": source})
 
+    background_tasks.add_task(_process_document_bg, doc_id, str(file_path), ext.lstrip("."))
     return _doc_to_out(doc)
 
 
 @router.get("/", response_model=DocumentListResponse)
 async def list_documents(
-    page: int = 1,
-    page_size: int = 50,
-    doc_type: Optional[str] = None,
-    source: Optional[str] = None,
+    page: int = 1, page_size: int = 50,
+    doc_type: Optional[str] = None, source: Optional[str] = None,
     current_user: dict = Depends(get_current_user),
 ):
     query = {}
@@ -159,31 +160,31 @@ async def list_documents(
 
 
 @router.delete("/{doc_id}", status_code=204)
-async def delete_document(doc_id: str, current_user: dict = Depends(require_superadmin)):
+async def delete_document(doc_id: str, request: Request, current_user: dict = Depends(require_superadmin)):
     doc = await documents_col().find_one({"id": doc_id})
     if not doc:
         raise HTTPException(404, "Document not found")
 
     ingestion = IngestionService(get_vector_store())
     await ingestion.delete_document(doc_id)
-
     fp = doc.get("file_path")
     if fp and Path(fp).exists():
         Path(fp).unlink()
-
     await documents_col().delete_one({"id": doc_id})
+    await audit(user=current_user, action="delete_document", resource_type="document",
+                resource_id=doc_id, request=request,
+                details={"title": doc.get("title"), "chunks_removed": doc.get("chunk_count", 0)})
 
 
 @router.post("/{doc_id}/reprocess", response_model=DocumentOut)
 async def reprocess_document(
-    doc_id: str,
+    doc_id: str, request: Request,
     background_tasks: BackgroundTasks,
     current_user: dict = Depends(require_superadmin),
 ):
     doc = await documents_col().find_one({"id": doc_id})
     if not doc:
         raise HTTPException(404, "Document not found")
-
     if not doc.get("file_path") or not Path(doc["file_path"]).exists():
         raise HTTPException(
             400,
@@ -193,12 +194,12 @@ async def reprocess_document(
 
     ingestion = IngestionService(get_vector_store())
     await ingestion.delete_document(doc_id)
-
     await documents_col().update_one(
         {"id": doc_id},
         {"$set": {"is_processed": False, "chunk_count": 0, "processing_error": None, "processed_at": None}},
     )
     background_tasks.add_task(_process_document_bg, doc_id, doc["file_path"], doc["file_type"])
-
+    await audit(user=current_user, action="reprocess_document", resource_type="document",
+                resource_id=doc_id, request=request)
     doc = await documents_col().find_one({"id": doc_id}, {"_id": 0})
     return _doc_to_out(doc)

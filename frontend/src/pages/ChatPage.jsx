@@ -87,36 +87,103 @@ export default function ChatPage() {
     const text = (content ?? input).trim();
     if (!text || sending) return;
     setSending(true);
+    setActiveSources([]);
 
+    const tempUserId = "user-" + Date.now();
+    const tempAsstId = "asst-" + Date.now();
     const tempUserMsg = {
-      message_id: "temp-" + Date.now(),
+      message_id: tempUserId,
       session_id: currentSessionId || "new",
       role: "user", content: text, sources: [], confidence_score: null,
       created_at: new Date().toISOString(),
     };
-    setMessages((m) => [...m, tempUserMsg]);
+    const tempAsstMsg = {
+      message_id: tempAsstId,
+      session_id: currentSessionId || "new",
+      role: "assistant", content: "", sources: [], confidence_score: null,
+      created_at: new Date().toISOString(),
+      _streaming: true,
+    };
+    setMessages((m) => [...m, tempUserMsg, tempAsstMsg]);
     setInput("");
 
+    const token = localStorage.getItem("ehs_token");
+    const url = `${process.env.REACT_APP_BACKEND_URL}/api/chat/stream`;
+    let buffer = "";
+    let streamedText = "";
+    let streamedSources = [];
+    let confidence = null;
+    let newSessionId = currentSessionId;
+
     try {
-      const { data } = await api.post("/chat/", {
-        content: text,
-        session_id: currentSessionId,
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json",
+          "Accept": "text/event-stream",
+        },
+        body: JSON.stringify({ content: text, session_id: currentSessionId }),
       });
-      // Replace temp user msg + append assistant
-      setMessages((prev) => {
-        const cleaned = prev.filter((m) => m.message_id !== tempUserMsg.message_id);
-        return [
-          ...cleaned,
-          { ...tempUserMsg, session_id: data.session_id },
-          data,
-        ];
-      });
-      setCurrentSessionId(data.session_id);
-      setActiveSources(data.sources || []);
+      if (!resp.ok || !resp.body) {
+        const err = await resp.text();
+        throw new Error(err || `HTTP ${resp.status}`);
+      }
+
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+
+      const handleEvent = (eventType, dataStr) => {
+        let data;
+        try { data = JSON.parse(dataStr); } catch { data = dataStr; }
+        if (eventType === "session") {
+          newSessionId = data.session_id;
+          setCurrentSessionId(data.session_id);
+        } else if (eventType === "sources") {
+          streamedSources = data;
+          setActiveSources(data);
+          setMessages((prev) => prev.map((m) =>
+            m.message_id === tempAsstId ? { ...m, sources: data } : m,
+          ));
+        } else if (eventType === "token") {
+          streamedText += (typeof data === "string" ? data : String(data));
+          setMessages((prev) => prev.map((m) =>
+            m.message_id === tempAsstId ? { ...m, content: streamedText } : m,
+          ));
+        } else if (eventType === "done") {
+          confidence = data?.confidence_score ?? null;
+          setMessages((prev) => prev.map((m) =>
+            m.message_id === tempAsstId
+              ? { ...m, content: data?.final_text || streamedText, confidence_score: confidence, _streaming: false }
+              : m,
+          ));
+        } else if (eventType === "error") {
+          throw new Error(data?.message || "Stream error");
+        }
+      };
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const events = buffer.split("\n\n");
+        buffer = events.pop() || "";
+        for (const blk of events) {
+          if (!blk.trim()) continue;
+          const lines = blk.split("\n");
+          let eventType = "message";
+          let dataLines = [];
+          for (const ln of lines) {
+            if (ln.startsWith("event:")) eventType = ln.slice(6).trim();
+            else if (ln.startsWith("data:")) dataLines.push(ln.slice(5).trim());
+          }
+          if (dataLines.length) handleEvent(eventType, dataLines.join("\n"));
+        }
+      }
       loadSessions();
     } catch (e) {
-      toast.error(e?.response?.data?.detail || "Chat failed");
-      setMessages((prev) => prev.filter((m) => m.message_id !== tempUserMsg.message_id));
+      toast.error(e?.message || "Chat failed");
+      setMessages((prev) => prev.filter((m) => m.message_id !== tempAsstId && m.message_id !== tempUserId));
     } finally {
       setSending(false);
     }
@@ -262,13 +329,13 @@ export default function ChatPage() {
                     {messages.map((m) => (
                       <MessageRow key={m.message_id} msg={m} />
                     ))}
-                    {sending && (
-                      <div className="flex gap-3" data-testid="thinking-indicator">
-                        <div className="w-8 h-8 bg-slate-900 flex items-center justify-center shrink-0">
+                    {sending && messages.length > 0 && messages[messages.length - 1]?.role === "assistant" && !messages[messages.length - 1]?.content && !messages[messages.length - 1]?.sources?.length && (
+                      <div className="flex gap-3 -mt-3" data-testid="thinking-indicator">
+                        <div className="w-8 h-8 bg-slate-900 flex items-center justify-center shrink-0 opacity-0">
                           <Robot size={16} weight="bold" className="text-white" />
                         </div>
-                        <div className="pt-1 font-mono text-xs uppercase tracking-[0.2em] text-slate-500">
-                          SEARCHING CORPUS<span className="streaming-dot"></span>
+                        <div className="font-mono text-xs uppercase tracking-[0.2em] text-slate-500">
+                          SEARCHING CORPUS<span className="streaming-dot ml-1"></span>
                         </div>
                       </div>
                     )}
@@ -398,9 +465,12 @@ function MessageRow({ msg }) {
           )}
         </div>
         <MarkdownRenderer
-          content={msg.content}
+          content={msg.content || (msg._streaming ? "" : "")}
           sources={msg.sources || []}
         />
+        {msg._streaming && (
+          <span className="streaming-dot" data-testid="streaming-cursor"></span>
+        )}
         {msg.sources?.length > 0 && (
           <div className="mt-4 pt-3 border-t border-slate-200">
             <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-slate-500 mb-2">Citations</div>
