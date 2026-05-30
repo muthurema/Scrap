@@ -184,6 +184,13 @@ async def reprocess_document(
     if not doc:
         raise HTTPException(404, "Document not found")
 
+    if not doc.get("file_path") or not Path(doc["file_path"]).exists():
+        raise HTTPException(
+            400,
+            "This document cannot be re-processed because its source file is not available "
+            "(e.g. seed-corpus entries stored inline). Re-upload it instead.",
+        )
+
     ingestion = IngestionService(get_vector_store())
     await ingestion.delete_document(doc_id)
 

@@ -170,11 +170,14 @@ export default function ChatPage() {
               <div className="px-3 py-4 text-xs text-slate-500 font-mono">// No conversations yet</div>
             )}
             {sessions.map((s) => (
-              <button
+              <div
                 key={s.id}
+                role="button"
+                tabIndex={0}
                 onClick={() => loadSession(s.id)}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); loadSession(s.id); } }}
                 data-testid={`session-${s.id}`}
-                className={`w-full text-left px-3 py-2 border border-transparent hover:border-slate-200 hover:bg-slate-50 group transition-colors ${
+                className={`w-full text-left px-3 py-2 border border-transparent hover:border-slate-200 hover:bg-slate-50 group transition-colors cursor-pointer ${
                   currentSessionId === s.id ? "bg-slate-100 border-slate-200" : ""
                 }`}
               >
@@ -194,7 +197,7 @@ export default function ChatPage() {
                     <Trash size={13} />
                   </button>
                 </div>
-              </button>
+              </div>
             ))}
           </div>
         </ScrollArea>
