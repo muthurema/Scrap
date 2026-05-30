@@ -209,6 +209,7 @@ async def get_messages(session_id: str, current_user: dict = Depends(get_current
             feedback=m.get("feedback"),
             is_high_risk=m.get("is_high_risk", False),
             suggested_followups=m.get("suggested_followups", []),
+            acknowledged_at=_parse_dt(m.get("acknowledged_at")) if m.get("acknowledged_at") else None,
             created_at=_parse_dt(m["created_at"]),
         )
         for m in msgs

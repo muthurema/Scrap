@@ -2,7 +2,7 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/auth-context";
 import {
   ShieldCheck, ChartBar, FileText, Globe, ArrowLeft, SignOut, User as UserIcon,
-  ChatCenteredDots, ChartLineUp,
+  ChatCenteredDots, ChartLineUp, SealCheck,
 } from "@phosphor-icons/react";
 
 export default function AdminLayout() {
@@ -15,6 +15,7 @@ export default function AdminLayout() {
     { to: "/admin/documents", label: "Documents", icon: FileText, testid: "nav-documents" },
     { to: "/admin/web-sources", label: "Web Sources", icon: Globe, testid: "nav-web-sources" },
     { to: "/admin/feedback", label: "Feedback Review", icon: ChatCenteredDots, testid: "nav-feedback" },
+    { to: "/admin/acknowledgements", label: "Acknowledgements", icon: SealCheck, testid: "nav-acknowledgements" },
   ];
 
   return (

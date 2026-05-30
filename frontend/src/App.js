@@ -10,6 +10,7 @@ import WebSourcesPage from "@/pages/admin/WebSourcesPage";
 import StatsPage from "@/pages/admin/StatsPage";
 import AnalyticsPage from "@/pages/admin/AnalyticsPage";
 import FeedbackQueuePage from "@/pages/admin/FeedbackQueuePage";
+import AcknowledgementsPage from "@/pages/admin/AcknowledgementsPage";
 import "@/App.css";
 
 function RequireAuth({ children, roles }) {
@@ -42,6 +43,7 @@ function App() {
             <Route path="documents" element={<DocumentsPage />} />
             <Route path="web-sources" element={<WebSourcesPage />} />
             <Route path="feedback" element={<FeedbackQueuePage />} />
+            <Route path="acknowledgements" element={<AcknowledgementsPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/chat" replace />} />
         </Routes>

@@ -100,7 +100,32 @@ EHS (Environment, Health & Safety) RAG chatbot for Turnstile360 — adapted from
 ## Mocked
 - Turnstile360 DMS sync `/api/admin/sync/turnstile/{company_id}` returns mock summary — awaiting real Turnstile API spec
 
-## Backlog / Future Sessions
+## v3.1 — Acknowledgement Workflow (NEW)
+
+**Compliance evidence layer** — turns advisory chatbot into auditable EHS management tool. Required in most jurisdictions for demonstrating that workers received and accepted safety information.
+
+### Backend
+- New `acknowledgements` MongoDB collection with unique index on `(message_id, user_id)`
+- `POST /api/acknowledgements/` with `{message_id}` — creates immutable ack
+- `GET /api/acknowledgements/me` — user's own acks (last 50)
+- `GET /api/acknowledgements/?high_risk_only=&user_id=` — superadmin
+- `GET /api/acknowledgements/export/csv?high_risk_only=` — CSV download for regulatory audit
+- **Snapshot at moment of ack** preserves: answer text, source titles, confidence score, user query, user site/role/jurisdiction/industry, IP, user-agent
+- **Idempotent** — duplicate POST returns existing ack with `already=true`
+- Chat message marked with `acknowledged_at` + `acknowledged_by` so reload shows status
+- Every ack creates an `audit_logs` entry (`acknowledge_message` action)
+
+### Frontend
+- **`<CheckSquare/> Acknowledge (required)`** button on **high_risk** answers (amber, animate-pulse)
+- **`<CheckSquare/> I understand`** button on normal answers (subtle, neutral)
+- After ack: **`<SealCheck/> Acknowledged`** badge (emerald, immutable — no unack to preserve compliance integrity)
+- New admin page `/admin/acknowledgements` — filterable table (All / High-Risk Only), expandable detail showing immutable answer snapshot + source titles + confidence + IP + user context, **Export CSV** button
+
+### Test verification
+- End-to-end: high-risk chat → ack POST → admin list shows entry with full user context (HQ / safety_officer / US juris / manufacturing) → CSV exports with all compliance fields → second ack returns `already=true`
+- 6 admin nav items now: Stats, Analytics, Documents, Web Sources, Feedback Review, Acknowledgements
+
+## Backlog
 
 ### Each is its own session
 - **Multi-language detection + bilingual answers** (Claude can; needs UI + retrieval language tag)

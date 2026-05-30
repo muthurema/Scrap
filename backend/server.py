@@ -27,6 +27,7 @@ from app.routes.audit_routes import router as audit_router
 from app.routes.user_routes import router as user_router
 from app.routes.feedback_routes import router as feedback_router, ensure_feedback_indexes
 from app.routes.analytics_routes import router as analytics_router
+from app.routes.acknowledgement_routes import router as ack_router, ensure_ack_indexes
 
 settings = get_settings()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -39,6 +40,7 @@ async def lifespan(app: FastAPI):
     await init_indexes()
     await ensure_audit_indexes()
     await ensure_feedback_indexes()
+    await ensure_ack_indexes()
     logger.info("Mongo indexes ensured")
     vs = get_vector_store()
     await vs.ensure_collections()
@@ -102,5 +104,6 @@ api.include_router(admin_router)
 api.include_router(audit_router)
 api.include_router(feedback_router)
 api.include_router(analytics_router)
+api.include_router(ack_router)
 
 app.include_router(api)

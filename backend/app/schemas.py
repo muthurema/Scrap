@@ -119,6 +119,7 @@ class ChatMessageOut(BaseModel):
     feedback: Optional[str] = None
     is_high_risk: bool = False
     suggested_followups: List[str] = []
+    acknowledged_at: Optional[datetime] = None
 
 
 class ChatSessionOut(BaseModel):

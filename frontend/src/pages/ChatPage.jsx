@@ -12,7 +12,7 @@ import { toast } from "sonner";
 import {
   PaperPlaneTilt, Plus, ChatCircle, ShieldCheck, SignOut, Trash,
   Books, GearSix, FileText, Robot, User as UserIcon, Sparkle,
-  Copy, ThumbsUp, ThumbsDown, Warning, CalendarBlank,
+  Copy, ThumbsUp, ThumbsDown, Warning, CalendarBlank, CheckSquare, SealCheck,
 } from "@phosphor-icons/react";
 import MarkdownRenderer from "@/components/MarkdownRenderer";
 import { createTypewriter } from "@/lib/typewriter";
@@ -247,6 +247,18 @@ export default function ChatPage() {
       .catch(() => toast.error("Copy failed"));
   };
 
+  const acknowledgeMessage = async (messageId) => {
+    try {
+      const { data } = await api.post("/acknowledgements/", { message_id: messageId });
+      setMessages((prev) => prev.map((m) =>
+        m.message_id === messageId ? { ...m, acknowledged_at: data.acknowledged_at || new Date().toISOString() } : m,
+      ));
+      toast.success(data.already ? "Already acknowledged" : "Acknowledgement recorded — entered in compliance audit trail");
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Couldn't record acknowledgement");
+    }
+  };
+
   const isEmpty = messages.length === 0;
 
   return (
@@ -379,6 +391,7 @@ export default function ChatPage() {
                         onCopy={copyMessage}
                         onFeedback={submitFeedback}
                         onFollowup={(q) => send(q)}
+                        onAcknowledge={acknowledgeMessage}
                       />
                     ))}
                     {sending && messages.length > 0 && messages[messages.length - 1]?.role === "assistant" && !messages[messages.length - 1]?.content && !messages[messages.length - 1]?.sources?.length && (
@@ -485,7 +498,7 @@ function EmptyState({ onPick }) {
   );
 }
 
-function MessageRow({ msg, onCopy, onFeedback, onFollowup }) {
+function MessageRow({ msg, onCopy, onFeedback, onFollowup, onAcknowledge }) {
   if (msg.role === "user") {
     return (
       <div className="flex gap-3" data-testid="user-message">
@@ -576,6 +589,28 @@ function MessageRow({ msg, onCopy, onFeedback, onFollowup }) {
             >
               <ThumbsDown size={12} weight={msg.feedback === "down" ? "fill" : "bold"} /> Flag
             </button>
+            {msg.acknowledged_at ? (
+              <span
+                data-testid={`acknowledged-${msg.message_id}`}
+                className="flex items-center gap-1 text-[10px] font-mono uppercase tracking-wider px-2 py-1 border border-emerald-300 bg-emerald-50 text-emerald-800"
+                title={`Acknowledged ${new Date(msg.acknowledged_at).toISOString().slice(0, 19).replace("T", " ")} UTC`}
+              >
+                <SealCheck size={12} weight="fill" /> Acknowledged
+              </span>
+            ) : (
+              <button
+                onClick={() => onAcknowledge?.(msg.message_id)}
+                data-testid={`acknowledge-${msg.message_id}`}
+                className={`flex items-center gap-1 text-[10px] font-mono uppercase tracking-wider px-2 py-1 border transition-colors ${
+                  msg.is_high_risk
+                    ? "border-amber-400 bg-amber-50 text-amber-800 hover:bg-amber-100 animate-pulse"
+                    : "border-transparent hover:border-blue-200 hover:bg-blue-50 text-slate-500 hover:text-blue-700"
+                }`}
+                title={msg.is_high_risk ? "High-risk procedure — acknowledgement strongly recommended for compliance" : "I understand and will follow this guidance"}
+              >
+                <CheckSquare size={12} weight="bold" /> {msg.is_high_risk ? "Acknowledge (required)" : "I understand"}
+              </button>
+            )}
           </div>
         )}
         {!msg._streaming && msg.suggested_followups?.length > 0 && (
