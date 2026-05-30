@@ -1,0 +1,113 @@
+{
+  "project_context": {
+    "domain": "Environment, Health & Safety (EHS)",
+    "app_type": "hybrid_fullstack",
+    "audience": "Safety engineers, compliance officers, plant managers",
+    "tone": "Trustworthy, precise, objective, professional"
+  },
+  "theme": "LIGHT",
+  "archetype": "4 (Swiss & High-Contrast)",
+  "color_system": {
+    "background": {
+      "primary": "bg-slate-50",
+      "secondary": "bg-white",
+      "tertiary": "bg-slate-100"
+    },
+    "text": {
+      "primary": "text-slate-900",
+      "secondary": "text-slate-600",
+      "muted": "text-slate-500",
+      "inverse": "text-white"
+    },
+    "borders": {
+      "default": "border-slate-200",
+      "focus": "ring-blue-600",
+      "grid": "border-slate-300"
+    },
+    "accents": {
+      "brand_primary": "bg-blue-600 hover:bg-blue-700 text-white",
+      "hazard_red": "bg-rose-600 text-white",
+      "warning_yellow": "bg-amber-400 text-slate-900",
+      "success_green": "bg-emerald-600 text-white"
+    },
+    "rules": [
+      "No pure #000000 or #FFFFFF without context. Use slate for a cool, sterile, technical feel.",
+      "Color is used for FUNCTION only. 90% of the UI should be monochrome.",
+      "High contrast is mandatory for all text to ensure readability of dense safety documents."
+    ]
+  },
+  "typography": {
+    "font_families": {
+      "headings": "Chivo, sans-serif",
+      "body": "IBM Plex Sans, sans-serif",
+      "mono": "IBM Plex Mono, monospace"
+    },
+    "hierarchy": {
+      "h1": "text-4xl font-black tracking-tighter text-slate-900",
+      "h2": "text-2xl font-bold tracking-tight text-slate-900",
+      "h3": "text-lg font-semibold tracking-tight text-slate-900",
+      "body": "text-base leading-relaxed text-slate-700",
+      "small": "text-sm text-slate-600",
+      "overline": "text-xs font-mono uppercase tracking-[0.2em] text-slate-500",
+      "citation": "text-xs font-mono tracking-tight text-blue-700 bg-blue-50 border border-blue-200"
+    }
+  },
+  "surface_strategy": {
+    "style": "Grid Borders (The Technical Look)",
+    "implementation": "Expose the skeleton. Dashboards and panels use solid backgrounds with 1px slate-200 borders. No soft shadows. Use sharp, clean lines. Max border-radius: 4px (rounded-sm).",
+    "cards": "Flat background, 1px subtle border, no shadow. Hover: slight lift, border darkens."
+  },
+  "layout_and_spacing": {
+    "philosophy": "Strict grid hierarchy, dense and compact spacing for data, generous padding for chat reading.",
+    "admin_dashboard": "Base Grid: grid-cols-1 md:grid-cols-4. Gap Strategy: Tight (gap-4). Every pixel utilized.",
+    "chat_interface": "3-column macro layout: Sidebar (250px) | Main Chat (1fr, max-w-4xl center text) | Sources Panel (300px or drawer).",
+    "padding_scale": "Use p-4 to p-8 strictly. Containers with borders MUST have internal padding."
+  },
+  "component_guidelines": {
+    "buttons": "Shadcn Button. Override to rounded-sm. Strict hover states explicitly declaring text color.",
+    "inputs": "Shadcn Input/Select. Flat, 1px border. Focus ring must be high contrast blue.",
+    "tables": "Shadcn Table. Dense styling. border-collapse. Expose cell borders.",
+    "chat_messages": "Left-aligned for both User and AI to aid scanning. Differentiate via borders and avatars. AI messages have no background, just clean text. User messages subtle slate-100 background.",
+    "citations_inline": "Small mono chips integrated into paragraph text. Must use Shadcn HoverCard to show the chunk preview.",
+    "sources_panel": "Bento-style small rectangular cards. Badges for type (SOP/HAZOP) and source (Company/Turnstile).",
+    "confidence_score": "Small pill badge next to AI name (e.g., '98% Confidence' in emerald green)."
+  },
+  "interactions_and_motion": {
+    "transitions": "Minimalist. transition-all duration-200 ease-in-out for hover states.",
+    "loading": "Use mono text 'PROCESSING...' or 'SEARCHING CORPUS...' instead of generic spinners when possible.",
+    "accessibility": "focus:ring-2 focus:ring-blue-600 focus:outline-none is mandatory on all interactive elements."
+  },
+  "icons": {
+    "library": "@phosphor-icons/react",
+    "style": "Regular or bold weight. High legibility.",
+    "install_command": "yarn add @phosphor-icons/react"
+  },
+  "media": {
+    "login_background": {
+      "url": "https://static.prod-images.emergentagent.com/jobs/0e7c1b13-1b55-4366-b1aa-0aee4d1bbb0f/images/dc67fb641583c3295298187cf006e27b9b92ed9f39f3b50e729eb4bc88cdecda.png",
+      "description": "Abstract topographical and grid background for the login page, representing precision and data."
+    },
+    "hero_alternative": {
+      "url": "https://static.prod-images.emergentagent.com/jobs/0e7c1b13-1b55-4366-b1aa-0aee4d1bbb0f/images/934e3fa2bab1c6a19d4e45eeed4f42796413a8b4186811c63d43a06bf8429c3f.png",
+      "description": "High contrast industrial facility, useful for an 'about' or 'onboarding' splash screen."
+    },
+    "logo_placeholder": {
+      "url": "https://images.unsplash.com/photo-1770210217380-d78a69acdc77?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1ODh8MHwxfHNlYXJjaHwxfHxhYnN0cmFjdCUyMGNsZWFuJTIwdGVjaCUyMGxvZ298ZW58MHx8fHwxNzgwMTc3NjUyfDA&ixlib=rb-4.1.0&q=85",
+      "description": "Clean tech concentric circles logo for the top-left brand anchor."
+    },
+    "avatar_placeholder": {
+      "url": "https://images.unsplash.com/photo-1672748341520-6a839e6c05bb?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzV8MHwxfHNlYXJjaHwxfHxpbmR1c3RyaWFsJTIwc2FmZXR5JTIwd29ya2VyJTIwaGFyZGhhdCUyMHBvcnRyYWl0fGVufDB8fHx8MTc4MDE3NzY1M3ww&ixlib=rb-4.1.0&q=85",
+      "description": "Safety worker avatar for the user profile dropdown."
+    }
+  },
+  "instructions_to_main_agent": [
+    "CRITICAL: All interactive elements MUST include a 'data-testid' attribute (e.g., data-testid='login-submit-button').",
+    "Use standard HTML/Tailwind for structural layouts; strictly use Shadcn components for complex interactions (Dropdowns, Dialogs, Tables, HoverCards).",
+    "Ensure the Chat UI supports real-time streaming updates gracefully without jumping layout.",
+    "Implement the Source citations as a primary feature. Inline citations must be clickable/hoverable to trigger the Shadcn HoverCard containing the source text chunk.",
+    "Never use generic card layouts for Admin panels. Use the 'Control Room' grid style: tight gaps, solid borders, utilizing screen space efficiently.",
+    "Enforce high accessibility. Forms must use Shadcn Form, Input, and Label components.",
+    "Apply fonts globally in the layout shell.",
+    "Build a separate Superadmin route layout with its own persistent Sidebar containing Documents, Web Sources, and Stats."
+  ]
+}
