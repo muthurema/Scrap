@@ -24,7 +24,11 @@ export default function LoginPage() {
         ? await login(email, password)
         : await register({ email, password, full_name: fullName, role: "user" });
       toast.success(`Welcome, ${user.full_name || user.email}`);
-      navigate(user.role === "superadmin" ? "/admin/stats" : "/chat");
+      if (user.needs_onboarding) {
+        navigate("/onboarding");
+      } else {
+        navigate(user.role === "superadmin" ? "/admin/stats" : "/chat");
+      }
     } catch (err) {
       const detail = err?.response?.data?.detail;
       const msg = typeof detail === "string" ? detail : (Array.isArray(detail) ? detail[0]?.msg : "Authentication failed");

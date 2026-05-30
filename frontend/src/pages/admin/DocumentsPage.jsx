@@ -34,8 +34,9 @@ export default function DocumentsPage() {
 
   const [form, setForm] = useState({
     title: "", description: "", doc_type: "general", source: "superadmin",
-    tags: "", version: "",
+    tags: "", version: "", expiry_date: "", jurisdiction: "",
   });
+  const [replacingDoc, setReplacingDoc] = useState(null);
 
   const load = async () => {
     try {

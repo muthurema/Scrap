@@ -19,7 +19,11 @@ export function AuthProvider({ children }) {
     setLoading(true);
     try {
       const { data } = await api.post("/auth/login", { email, password });
-      const u = { id: data.user_id, email: data.email, full_name: data.full_name, role: data.role, company_id: data.company_id };
+      const u = {
+        id: data.user_id, email: data.email, full_name: data.full_name,
+        role: data.role, company_id: data.company_id,
+        needs_onboarding: data.needs_onboarding ?? false,
+      };
       persist(data.access_token, u);
       return u;
     } finally {
@@ -31,7 +35,11 @@ export function AuthProvider({ children }) {
     setLoading(true);
     try {
       const { data } = await api.post("/auth/register", payload);
-      const u = { id: data.user_id, email: data.email, full_name: data.full_name, role: data.role, company_id: data.company_id };
+      const u = {
+        id: data.user_id, email: data.email, full_name: data.full_name,
+        role: data.role, company_id: data.company_id,
+        needs_onboarding: data.needs_onboarding ?? true,
+      };
       persist(data.access_token, u);
       return u;
     } finally {

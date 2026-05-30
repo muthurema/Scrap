@@ -92,7 +92,7 @@ export default function ChatPage() {
     setActiveSources([]);
 
     const tempUserId = "user-" + Date.now();
-    const tempAsstId = "asst-" + Date.now();
+    let tempAsstId = "asst-" + Date.now();
     const tempUserMsg = {
       message_id: tempUserId,
       session_id: currentSessionId || "new",
@@ -152,6 +152,13 @@ export default function ChatPage() {
         if (eventType === "session") {
           newSessionId = data.session_id;
           setCurrentSessionId(data.session_id);
+          // Swap the temp assistant message_id with the server-issued one so feedback POSTs hit the real id
+          if (data.message_id) {
+            setMessages((prev) => prev.map((m) =>
+              m.message_id === tempAsstId ? { ...m, message_id: data.message_id } : m,
+            ));
+            tempAsstId = data.message_id;
+          }
         } else if (eventType === "sources") {
           streamedSources = data;
           setActiveSources(data);
