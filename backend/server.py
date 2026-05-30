@@ -1,89 +1,82 @@
-from fastapi import FastAPI, APIRouter
-from dotenv import load_dotenv
-from starlette.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
+"""
+EHS Intelligent RAG — Main FastAPI app.
+All endpoints under /api/* for Emergent ingress routing.
+"""
 import os
 import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
-from pydantic import BaseModel, Field, ConfigDict
-from typing import List
-import uuid
-from datetime import datetime, timezone
-
+from dotenv import load_dotenv
 
 ROOT_DIR = Path(__file__).parent
-load_dotenv(ROOT_DIR / '.env')
+load_dotenv(ROOT_DIR / ".env")
 
-# MongoDB connection
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+from fastapi import FastAPI, APIRouter
+from fastapi.middleware.cors import CORSMiddleware
 
-# Create the main app without a prefix
-app = FastAPI()
+from app.config import get_settings
+from app.db import init_indexes
+from app.vector_store import get_vector_store
+from app.routes.auth_routes import router as auth_router
+from app.routes.chat_routes import router as chat_router
+from app.routes.document_routes import router as docs_router
+from app.routes.web_source_routes import router as web_sources_router
+from app.routes.admin_routes import router as admin_router
 
-# Create a router with the /api prefix
-api_router = APIRouter(prefix="/api")
+settings = get_settings()
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logger = logging.getLogger("ehs-rag")
 
 
-# Define Models
-class StatusCheck(BaseModel):
-    model_config = ConfigDict(extra="ignore")  # Ignore MongoDB's _id field
-    
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    client_name: str
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("EHS RAG starting up...")
+    await init_indexes()
+    logger.info("Mongo indexes ensured")
+    vs = get_vector_store()
+    await vs.ensure_collections()
+    logger.info(f"Qdrant collections ready at {settings.qdrant_path}")
+    yield
+    logger.info("EHS RAG shutting down")
 
-class StatusCheckCreate(BaseModel):
-    client_name: str
 
-# Add your routes to the router instead of directly to app
-@api_router.get("/")
-async def root():
-    return {"message": "Hello World"}
-
-@api_router.post("/status", response_model=StatusCheck)
-async def create_status_check(input: StatusCheckCreate):
-    status_dict = input.model_dump()
-    status_obj = StatusCheck(**status_dict)
-    
-    # Convert to dict and serialize datetime to ISO string for MongoDB
-    doc = status_obj.model_dump()
-    doc['timestamp'] = doc['timestamp'].isoformat()
-    
-    _ = await db.status_checks.insert_one(doc)
-    return status_obj
-
-@api_router.get("/status", response_model=List[StatusCheck])
-async def get_status_checks():
-    # Exclude MongoDB's _id field from the query results
-    status_checks = await db.status_checks.find({}, {"_id": 0}).to_list(1000)
-    
-    # Convert ISO string timestamps back to datetime objects
-    for check in status_checks:
-        if isinstance(check['timestamp'], str):
-            check['timestamp'] = datetime.fromisoformat(check['timestamp'])
-    
-    return status_checks
-
-# Include the router in the main app
-app.include_router(api_router)
+app = FastAPI(
+    title="EHS Intelligent RAG API",
+    description="Environment, Health & Safety AI assistant — RAG over company docs + base EHS corpus.",
+    version="1.0.0",
+    lifespan=lifespan,
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+    openapi_url="/api/openapi.json",
+)
 
 app.add_middleware(
     CORSMiddleware,
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+api = APIRouter(prefix="/api")
 
-@app.on_event("shutdown")
-async def shutdown_db_client():
-    client.close()
+
+@api.get("/")
+async def root():
+    return {"service": "EHS Intelligent RAG API", "version": "1.0.0"}
+
+
+@api.get("/health")
+async def health():
+    vs = get_vector_store()
+    status = await vs.health()
+    return {"status": "healthy", "qdrant": status, "model": settings.claude_model}
+
+
+api.include_router(auth_router)
+api.include_router(chat_router)
+api.include_router(docs_router)
+api.include_router(web_sources_router)
+api.include_router(admin_router)
+
+app.include_router(api)
