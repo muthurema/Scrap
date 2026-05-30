@@ -28,6 +28,7 @@ async def register(payload: UserCreate):
         "role": role,
         "company_id": payload.company_id,
         "is_active": True,
+        "needs_onboarding": True,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await users_col().insert_one(doc)
@@ -39,6 +40,7 @@ async def register(payload: UserCreate):
     return TokenResponse(
         access_token=token, user_id=user_id, role=role,
         email=payload.email, full_name=payload.full_name, company_id=payload.company_id,
+        needs_onboarding=True,
     )
 
 
@@ -58,6 +60,7 @@ async def login(payload: UserLogin):
         access_token=token, user_id=user["id"], role=user["role"],
         email=user["email"], full_name=user.get("full_name"),
         company_id=user.get("company_id"),
+        needs_onboarding=user.get("needs_onboarding", False),
     )
 
 

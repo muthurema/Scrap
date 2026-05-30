@@ -2,6 +2,7 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/auth-context";
 import {
   ShieldCheck, ChartBar, FileText, Globe, ArrowLeft, SignOut, User as UserIcon,
+  ChatCenteredDots, ChartLineUp,
 } from "@phosphor-icons/react";
 
 export default function AdminLayout() {
@@ -10,8 +11,10 @@ export default function AdminLayout() {
 
   const navItems = [
     { to: "/admin/stats", label: "Stats", icon: ChartBar, testid: "nav-stats" },
+    { to: "/admin/analytics", label: "Analytics", icon: ChartLineUp, testid: "nav-analytics" },
     { to: "/admin/documents", label: "Documents", icon: FileText, testid: "nav-documents" },
     { to: "/admin/web-sources", label: "Web Sources", icon: Globe, testid: "nav-web-sources" },
+    { to: "/admin/feedback", label: "Feedback Review", icon: ChatCenteredDots, testid: "nav-feedback" },
   ];
 
   return (
@@ -66,7 +69,7 @@ export default function AdminLayout() {
             </div>
             <button
               onClick={() => { logout(); navigate("/login"); }}
-              data-testid="admin-logout-btn"
+              data-testid="logout-button"
               className="text-slate-400 hover:text-rose-600 transition-colors"
               title="Sign out"
             >

@@ -1,117 +1,88 @@
 # EHS Intelligent RAG — Product Requirements Document
 
 ## Original Problem Statement
-User uploaded `ehs-rag.zip` — a production-grade backend for an **EHS (Environment, Health & Safety) Intelligent RAG chatbot** designed for **Turnstile360** integration. Original backend was FastAPI + Qdrant (Docker) + Claude + OpenAI embeddings + SQLite. User asked: *"Can you create this? First plan and tell me"* and confirmed the following adaptations to the Emergent platform:
+User uploaded `ehs-rag.zip` — production-grade backend for an EHS (Environment, Health & Safety) Intelligent RAG chatbot designed for Turnstile360 integration. Adapted to Emergent platform: Qdrant in-process local mode, MongoDB metadata, full React UI, Emergent Universal Key for Claude, Turnstile DMS sync stubbed. **Iteration 2** added streaming, security hardening, and RAG quality improvements per user-provided RAG/security best-practices guidance.
 
-- **Qdrant** → in-process file-based local mode (no Docker)
-- **SQLite** → **MongoDB** (motor)
-- **Frontend** → full React UI required
-- **API keys** → Emergent Universal Key (Claude only; OpenAI embeddings replaced with local fastembed)
-- **Turnstile DMS sync** → stubbed/mock
-
-## Architecture (Implemented)
+## Architecture (v2.0)
 
 | Layer | Tech |
 |---|---|
 | Backend | FastAPI on port 8001, all routes under `/api/*` |
-| LLM | Claude `claude-sonnet-4-6` via `emergentintegrations.LlmChat` |
-| Embeddings | `fastembed` ONNX (`BAAI/bge-small-en-v1.5`, 384-dim, local) |
-| Vector DB | Qdrant local file mode at `/app/backend/qdrant_data` (2 collections: `ehs_company_docs` + `ehs_base_knowledge`) |
-| Metadata DB | MongoDB (motor) — users, companies, documents, chat_sessions, chat_messages, web_sources |
-| Auth | JWT (python-jose) + bcrypt; first registered user → superadmin |
+| LLM | Claude `claude-sonnet-4-6` via `litellm` → Emergent proxy (streaming + non-streaming) |
+| Dense embeddings | `fastembed` ONNX `BAAI/bge-small-en-v1.5` (384-dim) |
+| Sparse embeddings | `fastembed` BM25 (`Qdrant/bm25`) |
+| Re-ranker | Cross-encoder `Xenova/ms-marco-MiniLM-L-6-v2` |
+| Query expansion | **HyDE** — Claude rewrites query into synthetic answer for better retrieval |
+| Vector DB | Qdrant local file mode at `/app/backend/qdrant_data`; collections have NAMED vectors (`dense` + `bm25`) |
+| Retrieval | Dense + Sparse parallel search → Reciprocal Rank Fusion → Cross-encoder rerank |
+| Metadata DB | MongoDB (motor) — users, companies, documents, chat_sessions, chat_messages, web_sources, **audit_logs** |
+| Auth | JWT (python-jose) + bcrypt; first user → superadmin |
+| Scheduler | APScheduler (hourly tick, per-source due-check by frequency) |
+| OCR | Tesseract + pdf2image + pytesseract (fallback for image-only PDFs and JPG/PNG uploads) |
 | Frontend | React 19 + Tailwind + Shadcn UI + Phosphor icons + react-markdown + remark-gfm |
-| Fonts | Chivo (display) + IBM Plex Sans (body) + IBM Plex Mono (labels) |
 
-## User Personas
-1. **Safety Engineer / EHS Officer** — asks technical EHS questions, reads dense citations
-2. **Plant Manager** — wants quick procedure summaries (permits, incident response)
-3. **Compliance Officer (Superadmin)** — uploads SOPs, manages web sources, reviews regulatory changes
+## Security Posture (v2.0)
+1. **Prompt-injection sanitization** — input cleaning of ChatML/role tags + injection-pattern scan; documents scanned on ingest with findings logged
+2. **Jailbreak refusal** — hardened system prompt with exact refusal phrase
+3. **Hallucination guardrails** — model instructed to never invent regulation numbers, ISO clauses, OEL/PEL/TLV, or CAS numbers; must cite verbatim or decline
+4. **SSRF protection** — `is_safe_url()` blocks private RFC1918, loopback, link-local (incl. AWS 169.254.169.254 metadata), multicast, CGNAT; checks both initial URL and final redirected URL
+5. **Audit logging** — every superadmin destructive action (upload/delete/reprocess/web-source CRUD/scrape/acknowledge/session-delete) logged with user_id, email, role, IP, user-agent, resource_type, resource_id, masked details, status
+6. **Secret masking** in audit details (`sk-emergent-*`, `sk-ant-*`, JWTs)
+7. **PII heuristic flag** on user queries (email/phone/SSN/credit-card patterns logged to msg record)
+8. **Chunk text capped at 300 chars** in SourceReference (no verbatim long-passage leak)
+9. **Conversation history capped at 8 turns** sent to LLM
 
-## Core Requirements (Static)
-- RAG retrieval with **priority boosting**:
-  - Company uploads = 1.5× (Superadmin source)
-  - Turnstile DMS sync = 1.3×
-  - Base EHS corpus (OSHA/ISO) = 1.0×
-- Doc-type-aware chunking (8 types × custom chunk_size / overlap / type-boost)
-- Multi-format ingestion: PDF, DOCX, XLSX, TXT, CSV, MD
-- Inline citation chips `[1]…[n]` in answers, hoverable source preview, dedicated sources panel
-- Confidence score badge (avg of retrieved chunk boosted scores)
-- Web source scraping with change detection (hash-diff) + pending-review flag
-- Chat session history, multi-turn conversation, delete sessions
-- Admin: stats dashboard (live), documents CRUD with reprocess, web sources CRUD with scrape-now
+## RAG Quality (v2.0)
+- **HyDE query rewriting** — Claude generates a synthetic answer for the query, embedded along with original query
+- **Hybrid retrieval** — Dense + BM25 sparse vectors searched in parallel
+- **Reciprocal Rank Fusion** — merges 4 result lists (2 collections × 2 vector types) with k=60
+- **Cross-encoder re-rank** — top-18 candidates re-scored by `ms-marco-MiniLM-L-6-v2`
+- **Chunk deduplication** on ingest via SHA-256 of normalized text
+- **Doc-type-aware chunking** preserved (8 types × custom chunk_size/overlap/type-boost)
+- **Source-priority boost** retained (Company 1.5× / Turnstile 1.3× / Base 1.0×)
 
-## What's Been Implemented (2026-05-30)
+## Streaming UX
+- **SSE endpoint** `POST /api/chat/stream` emits events in order: `session` → `sources` (sources-first per user preference) → `token` (multiple) → `done`
+- Frontend ChatPage uses `fetch` + `ReadableStream` reader; assistant message bubble grows incrementally with blinking cursor; sources panel populates before text streams
+- Buffering note: litellm/Emergent proxy may flush tokens in bursts (10-100 chars) rather than one-by-one
 
-### Backend (`/app/backend`)
-- `server.py` — FastAPI entry, mounts `/api` router
-- `app/config.py` — Settings, DocumentType/Source enums, chunk configs, source boosts, doc-type auto-detect keywords
-- `app/db.py` — Motor connection + collection accessors + indexes
-- `app/auth.py` — bcrypt + JWT helpers, dependency injectors (`get_current_user`, `require_superadmin`)
-- `app/embeddings.py` — fastembed local embeddings, asyncio.to_thread wrapped
-- `app/vector_store.py` — Qdrant local file-mode singleton, upsert / search / delete / health
-- `app/ingestion.py` — parsers (PDF/DOCX/XLSX/TXT) + RecursiveCharacterTextSplitter + chunking
-- `app/rag_engine.py` — EHS system prompt, context builder, retrieve+answer via Claude
-- `app/routes/auth_routes.py` — `/auth/register`, `/auth/login`, `/auth/me`
-- `app/routes/chat_routes.py` — `/chat/`, `/chat/sessions`, `/chat/sessions/{id}/messages`
-- `app/routes/document_routes.py` — upload (multipart, background processing), list, delete, reprocess
-- `app/routes/web_source_routes.py` — CRUD + `/scrape` + change detection
-- `app/routes/admin_routes.py` — `/admin/stats`, `/admin/companies`, `/admin/sync/turnstile` (stub)
-- `seed.py` — creates admin user + 7 base-corpus EHS documents
+## Implementation Timeline
 
-### Frontend (`/app/frontend`)
-- `App.js` — React Router with protected routes
-- `lib/auth-context.js` — login/register/logout + localStorage persistence
-- `lib/api.js` — Axios instance with Bearer token interceptor + 401 redirect
-- `pages/LoginPage.jsx` — Swiss-aesthetic split layout, brand panel with priority boost cards, demo creds
-- `pages/ChatPage.jsx` — Left session sidebar, center conversation, right sources panel (xl+), suggestion grid empty state, inline citations
-- `pages/admin/AdminLayout.jsx` — Side nav for superadmin
-- `pages/admin/StatsPage.jsx` — Live stat tiles (auto-refresh 10s), priority boost cards, chunking strategy table
-- `pages/admin/DocumentsPage.jsx` — Upload dialog, document table with status badges + reprocess/delete
-- `pages/admin/WebSourcesPage.jsx` — Add URL dialog, sources table with scrape-now + delete
-- `components/MarkdownRenderer.jsx` — react-markdown with remark-gfm + inline `[n]` → citation chip transformer
+### 2026-05-30 — Iteration 1 (MVP)
+- Backend skeleton, dense-only retrieval, non-streaming chat, JWT auth, doc upload, web scraping
+- Frontend Login + Chat + Admin (Stats / Documents / Web Sources)
+- 7 base-corpus EHS docs seeded
+- Tests: 16/16 backend pytest pass; ~95% frontend (2 bugs fixed)
 
-### Seeded Data
-- Admin user: `admin@ehsrag.com` / `Admin@12345` (superadmin)
-- 7 base-corpus EHS documents, 9 embedded chunks total:
-  1. OSHA Confined Space Entry (29 CFR 1910.146)
-  2. ISO 45001 OH&S Management Systems
-  3. Hot Work Permit Procedure
-  4. LOTO — 29 CFR 1910.147
-  5. Job Safety Analysis (JSA) Methodology
-  6. Incident Investigation RCA Best Practices
-  7. Chemical Safety — GHS, SDS, HazCom
+### 2026-05-30 — Iteration 2 (Hardening + RAG Quality)
+- **Added:** SSE streaming chat, HyDE, BM25 sparse + RRF, cross-encoder rerank, hallucination guardrails, prompt-injection sanitization, SSRF protection, audit logging + UI widget, APScheduler weekly auto-scrape, OCR fallback (Tesseract), chunk deduplication
+- Tests: 14/14 new backend pytest pass (iter2.py) + 16/16 iter1 still pass; ~98% frontend
 
-## Test Status (iteration_1.json)
-- **Backend:** 100% pass (16/16 pytest cases)
-- **Frontend:** ~95% pass, all flows working
-- Verified live: chat answer for "Explain the 6-step LOTO procedure" returns 8 sources w/ confidence 0.625; LOTO doc cited as primary source [1]
-- Bug fixed: nested `<button>` in session sidebar (replaced outer with `<div role="button">`)
-- Bug fixed: reprocess endpoint no longer crashes on inline-seeded docs (returns 400 with helpful message)
-
-## Backlog / Future Enhancements
-
-### P0 (Critical user value)
-- ✅ Multi-tenant company isolation (data model already in place; needs UI for company-scoped views)
-
-### P1 (High-impact features)
-- Streaming chat (SSE via Anthropic streaming endpoint) — currently single-shot response
-- Wire real Turnstile360 DMS API (currently stubbed in `/api/admin/sync/turnstile/{company_id}`)
-- Background scheduler for periodic web-source scraping (APScheduler installed, not yet wired)
-- OCR fallback for scanned PDFs (tesseract integration)
-- Export answer with citations as PDF / share-link
-
-### P2 (Polish)
-- Add `DialogDescription` to Radix dialogs (a11y warning)
-- Confidence/relevance threshold slider in admin
-- Per-company embedding model selection
-- Audit log of all chat queries (for compliance review)
-- Voice input (Whisper STT via Universal Key)
+## Test Status
+- iteration_1.json: backend 16/16, frontend ~95% — all bugs fixed
+- iteration_2.json: backend 14/14, frontend ~98% — no critical bugs
 
 ## Mocked Integrations
-- **Turnstile360 DMS sync** — `/api/admin/sync/turnstile/{company_id}` returns a mock summary `{new:0, updated:0, skipped:0, errors:0}` with a `note` field explaining the stub. Real HTTP integration deferred until customer provides the Turnstile API spec.
+- **Turnstile360 DMS sync** — `/api/admin/sync/turnstile/{company_id}` returns mock summary; real HTTP integration deferred until customer provides API spec
+
+## Backlog / Future
+
+### P1
+- **Streaming buffering** — investigate enabling true token-by-token via SSE `text-event-stream` flushing (may require uvicorn config changes or a different proxy path)
+- **Wire real Turnstile360 API** when spec is shared
+- **Eval & monitoring** — log retrieval-answer pairs, admin metrics dashboard (avg score per query, % below threshold, top dead queries, top cited docs), thumbs up/down feedback (Batch D from session 2)
+- **Compliance digest email** — weekly Monday 8am email to safety officers with: new pending-review web sources + top 5 unanswered chat queries
+
+### P2
+- Replace native title-attribute citation tooltips with Radix Tooltip for animated UX
+- Voice input (Whisper STT via Universal Key)
+- PDF export of answers with citations
+- Per-tenant embedding model selection
+- Refresh-token rotation for production JWT
+- Multi-tenant company-scoped admin views
 
 ## Next Tasks
-1. Test the new `<div role="button">` fix in browser (hot reload should pick up)
-2. Wire streaming chat (Anthropic supports SSE; emergentintegrations has streaming support)
-3. Activate APScheduler-based weekly web-source re-scrape on startup
-4. Hook real Turnstile API once spec is provided
+1. Eval & monitoring dashboard (Batch D)
+2. Wire real Turnstile360 API once spec is shared
+3. Investigate true token-by-token streaming (currently bursts)
+4. Compliance digest email feature

@@ -1,0 +1,61 @@
+{
+  "summary": "Iteration 3 testing — 22/22 backend tests PASSED (100%). Frontend ~70%: typewriter reveal, disclaimer, follow-ups, high-risk badge+banner, admin sidebar (5 items), Analytics (4 tiles+4 blocks), Feedback queue all WORK. THREE critical frontend bugs found: (1) DocumentsPage has runtime error 'replacingDoc is not defined' that crashes the entire /admin/documents route, (2) new-user onboarding redirect is broken (lands on /chat instead of /onboarding despite backend correctly returning needs_onboarding=true), (3) feedback POSTs from chat UI return 404 because frontend uses client-side tempAsstId rather than the server's real message_id.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "DocumentsPage (/admin/documents)",
+        "issue": "Runtime crash 'ReferenceError: replacingDoc is not defined'. The component uses `replacingDoc` and `setReplacingDoc` (lines 71, 76, 78, 90, 233, 238, 247) but the useState declaration was never added. The page renders Uncaught runtime errors overlay and cannot be used at all. This blocks: expiry/jurisdiction upload fields validation, Replace button feature, EXPIRED badge verification.",
+        "selector": "[data-testid='documents-page']",
+        "priority": "CRITICAL"
+      },
+      {
+        "component": "Onboarding routing",
+        "issue": "After registering a brand-new user (backend correctly returns needs_onboarding=true and persists it — backend test PASSED), the frontend navigates to /chat instead of /onboarding. The post-register/login flow is not honoring the needs_onboarding flag from the auth response. Existing admin login correctly goes to /admin/stats so admin path is fine.",
+        "selector": "navigation after register-submit",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Chat thumbs-up / thumbs-down feedback",
+        "issue": "Frontend POSTs /api/feedback/{message_id} using a client-generated tempAsstId (ChatPage.jsx line 103 sets `message_id: tempAsstId`). The server-side chat message has a different DB id, so all feedback calls return 404 and the toast shows 'Couldn't save feedback'. The SSE 'done' handler never swaps tempAsstId for the server's real message_id. Backend feedback API works correctly when called with a real message_id (verified by 8 backend tests).",
+        "affected_selectors": ["[data-testid^='thumbs-up-']", "[data-testid^='thumbs-down-']"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_ehs_rag_iteration3.py",
+    "/app/test_reports/pytest/pytest_iteration3.xml"
+  ],
+  "action_items": [
+    "FIX DocumentsPage.jsx — add `const [replacingDoc, setReplacingDoc] = useState(null);` near the other useState hooks (around line 31). Without this the entire /admin/documents page crashes.",
+    "FIX onboarding redirect — after register/login, if the auth response has needs_onboarding=true, navigate to /onboarding rather than /chat. Check src/pages/LoginPage.jsx and src/lib/auth-context.js post-auth navigation logic.",
+    "FIX feedback message_id mismatch — when the SSE 'done' event arrives with the server-issued message_id, ChatPage.jsx must replace the assistant row's tempAsstId with the real id (e.g. setMessages prev => prev.map(m => m.message_id===tempAsstId ? {...m, message_id: data.message_id} : m)). Otherwise feedback POSTs always 404.",
+    "After fixes, re-test the Documents page upload dialog (Expiry Date + Jurisdiction fields), Replace button + 'Replacing X' banner, and EXPIRED status badge — none of these could be verified due to the page crash."
+  ],
+  "critical_code_review_comments": [
+    "DocumentsPage.jsx: missing useState for replacingDoc — clear oversight; the entire feature shipped non-functional.",
+    "ChatPage.jsx: message_id should be the server's authoritative id once available. Using tempAsstId everywhere downstream (feedback, copy reference) is brittle.",
+    "Onboarding routing: the auth flow does not centralise the needs_onboarding check; both LoginPage and AuthProvider need to consult this flag before deciding the post-auth route.",
+    "Good: All backend routes (users, feedback, analytics, documents supersede/expiry, admin stats) work correctly end-to-end. SSRF regression holds. Analytics 403 on non-superadmin works. SSE 'done' event correctly carries suggested_followups + is_high_risk."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_ehs_rag_iteration3.py (created — 22 tests covering all iteration-3 backend features)"
+  ],
+  "success_rate": {"backend": "100% (22/22)", "frontend": "~70% (8/11 flows passed)"},
+  "test_credentials": "admin@ehsrag.com / Admin@12345 (seeded superadmin). New test user registered: iter3fe_<ts>@example.com / TestPass@123 (needs_onboarding flag verified true on backend, frontend doesn't honor it).",
+  "seed_data_creation": "Created one new test user via /api/auth/register, multiple supersede/expired test docs (auto-cleaned via pytest fixtures), several chat feedback rows with annotations on backend for admin@ehsrag.com.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "After main agent fixes the 3 frontend bugs, re-run the Playwright flow paying special attention to: (1) /admin/documents page should not show 'replacingDoc is not defined', upload dialog should expose Expiry Date + Jurisdiction (both already have correct data-testid), Replace icon button (ArrowsLeftRight) should open dialog with 'Replacing X' banner. (2) Register a NEW user with unique email; verify it lands on /onboarding (data-testid=onboarding-page). (3) Send any chat, then click thumbs-down — toast should say 'Feedback saved' (not 'Couldn't save feedback') and the feedback row should appear in /admin/feedback. Use Radix Select interactions with force=True and 200ms wait after open. Backend testfile /app/backend/tests/test_ehs_rag_iteration3.py is the regression baseline.",
+  "rca_of_the_issue": {
+    "DocumentsPage_crash": "DocumentsPage.jsx references `replacingDoc` and `setReplacingDoc` in 6 places (set inside `replace(doc)` handler at line 90 and reset in upload submit at line 78, plus 4 read-sites for the conditional banner/button labels), but the corresponding `const [replacingDoc, setReplacingDoc] = useState(null);` line was never added near the other useState calls (lines 29-35). React throws ReferenceError at first render. Fix: add the missing useState line.",
+    "Onboarding_redirect": "Backend register/login both return needs_onboarding correctly (verified via backend test_new_user_needs_onboarding PASS, /api/users/me PATCH PASS). The frontend navigates to /chat unconditionally after successful auth. The auth context / LoginPage post-auth navigation must consult user.needs_onboarding and route to /onboarding when true (and only to /chat or /admin/stats otherwise).",
+    "Feedback_404": "ChatPage.jsx line 103 sets the assistant message's `message_id` to the client-generated `tempAsstId`. The SSE 'done' event from /api/chat/stream returns the server-issued message_id, but the handler does not swap tempAsstId for it. So when the user clicks thumbs-down, POST /api/feedback/{tempAsstId} hits the backend which can't find a chat_messages row with that id and returns 404 → 'Couldn't save feedback' toast. Fix: on SSE 'done', map prev messages to replace tempAsstId with data.message_id."
+  }
+}

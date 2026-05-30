@@ -24,6 +24,9 @@ from app.routes.document_routes import router as docs_router
 from app.routes.web_source_routes import router as web_sources_router
 from app.routes.admin_routes import router as admin_router
 from app.routes.audit_routes import router as audit_router
+from app.routes.user_routes import router as user_router
+from app.routes.feedback_routes import router as feedback_router, ensure_feedback_indexes
+from app.routes.analytics_routes import router as analytics_router
 
 settings = get_settings()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -35,6 +38,7 @@ async def lifespan(app: FastAPI):
     logger.info("EHS RAG starting up...")
     await init_indexes()
     await ensure_audit_indexes()
+    await ensure_feedback_indexes()
     logger.info("Mongo indexes ensured")
     vs = get_vector_store()
     await vs.ensure_collections()
@@ -90,10 +94,13 @@ async def health():
 
 
 api.include_router(auth_router)
+api.include_router(user_router)
 api.include_router(chat_router)
 api.include_router(docs_router)
 api.include_router(web_sources_router)
 api.include_router(admin_router)
 api.include_router(audit_router)
+api.include_router(feedback_router)
+api.include_router(analytics_router)
 
 app.include_router(api)

@@ -54,17 +54,16 @@ async def list_companies(current_user: dict = Depends(require_superadmin)):
 async def stats(current_user: dict = Depends(require_superadmin)):
     from app.vector_store import get_vector_store
     from app.config import get_settings
+    from app.routes.feedback_routes import feedback_col
     settings = get_settings()
 
-    total_docs = await documents_col().count_documents({})
-    company_docs = await documents_col().count_documents({"source": {"$in": ["superadmin", "turnstile_dms"]}})
-    base_docs = await documents_col().count_documents({"source": "base_corpus"})
+    total_docs = await documents_col().count_documents({"superseded_by_id": None})
+    company_docs = await documents_col().count_documents({"source": {"$in": ["superadmin", "turnstile_dms"]}, "superseded_by_id": None})
+    base_docs = await documents_col().count_documents({"source": "base_corpus", "superseded_by_id": None})
 
-    # Sum chunk_count
     pipeline = [{"$group": {"_id": None, "total": {"$sum": "$chunk_count"}}}]
     chunk_agg = await documents_col().aggregate(pipeline).to_list(1)
     doc_chunks = chunk_agg[0]["total"] if chunk_agg else 0
-    # Plus web source chunks
     ws_pipeline = [{"$group": {"_id": None, "total": {"$sum": "$last_chunk_count"}}}]
     ws_agg = await web_sources_col().aggregate(ws_pipeline).to_list(1)
     ws_chunks = ws_agg[0]["total"] if ws_agg else 0
@@ -74,6 +73,11 @@ async def stats(current_user: dict = Depends(require_superadmin)):
     total_web = await web_sources_col().count_documents({})
     total_pending = await web_sources_col().count_documents({"is_change_pending_review": True})
     total_users = await users_col().count_documents({})
+    pending_fb = await feedback_col().count_documents({"rating": "down", "is_reviewed": False})
+
+    from datetime import datetime, timezone
+    now_iso = datetime.now(timezone.utc).isoformat()
+    expired = await documents_col().count_documents({"expiry_date": {"$lt": now_iso, "$ne": None}})
 
     vs = get_vector_store()
     qdrant_status = await vs.health()
@@ -89,6 +93,8 @@ async def stats(current_user: dict = Depends(require_superadmin)):
         total_web_sources=total_web,
         web_sources_pending_review=total_pending,
         total_users=total_users,
+        pending_feedback=pending_fb,
+        expired_documents=expired,
     )
 
 

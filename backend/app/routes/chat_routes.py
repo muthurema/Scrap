@@ -1,4 +1,4 @@
-"""Chat routes — non-streaming + SSE streaming (sources-first)."""
+"""Chat routes — non-streaming + SSE streaming (sources-first), with user profile awareness + SME corrections."""
 import json
 import uuid
 from datetime import datetime, timezone
@@ -6,13 +6,15 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from app.db import chat_sessions_col, chat_messages_col
+from app.db import chat_sessions_col, chat_messages_col, users_col
 from app.schemas import ChatMessageIn, ChatMessageOut, ChatSessionOut, SourceReference
 from app.auth import get_current_user
 from app.vector_store import get_vector_store
 from app.rag_engine import RAGEngine
 from app.security import sanitize_user_query, has_injection_signal, detect_pii
+from app.escalation import is_high_risk
 from app.audit import audit
+from app.routes.feedback_routes import get_relevant_annotations
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
@@ -56,13 +58,21 @@ async def chat(payload: ChatMessageIn, request: Request, current_user: dict = De
     session_id = await _ensure_session(payload, current_user)
     history = await _load_history(session_id)
 
+    profile = await users_col().find_one({"id": current_user["sub"]}, {"_id": 0, "jurisdiction": 1})
+    user_juris = (profile or {}).get("jurisdiction")
+    sme_corrections = await get_relevant_annotations(payload.content)
+
     rag = RAGEngine(get_vector_store())
     answer, chunks, retrieval_meta = await rag.answer(
         query=payload.content, session_id=session_id, history=history,
         company_id=current_user.get("company_id"),
+        user_jurisdiction=user_juris,
+        sme_corrections=sme_corrections,
     )
     sources = rag.chunks_to_sources(chunks)
     avg_score = (sum(c.boosted_score for c in chunks) / len(chunks)) if chunks else None
+    followups = await rag.suggest_followups(payload.content, answer)
+    high_risk = is_high_risk(payload.content)
 
     user_msg_id = str(uuid.uuid4())
     assistant_msg_id = str(uuid.uuid4())
@@ -77,6 +87,7 @@ async def chat(payload: ChatMessageIn, request: Request, current_user: dict = De
         {"id": assistant_msg_id, "session_id": session_id, "role": "assistant",
          "content": answer, "sources": [s.model_dump(mode="json") for s in sources],
          "confidence_score": avg_score, "retrieval_meta": retrieval_meta,
+         "is_high_risk": high_risk, "suggested_followups": followups,
          "created_at": created_at},
     ])
     await chat_sessions_col().update_one(
@@ -86,6 +97,7 @@ async def chat(payload: ChatMessageIn, request: Request, current_user: dict = De
     return ChatMessageOut(
         message_id=assistant_msg_id, session_id=session_id, role="assistant",
         content=answer, sources=sources, confidence_score=avg_score,
+        is_high_risk=high_risk, suggested_followups=followups,
         created_at=datetime.fromisoformat(created_at),
     )
 
@@ -98,38 +110,44 @@ async def chat_stream(payload: ChatMessageIn, request: Request, current_user: di
     history = await _load_history(session_id)
     rag = RAGEngine(get_vector_store())
 
+    profile = await users_col().find_one({"id": current_user["sub"]}, {"_id": 0, "jurisdiction": 1})
+    user_juris = (profile or {}).get("jurisdiction")
+    sme_corrections = await get_relevant_annotations(payload.content)
+
     user_msg_id = str(uuid.uuid4())
     assistant_msg_id = str(uuid.uuid4())
     created_at = _now_iso()
-    final_text_holder: dict = {"text": "", "sources": [], "confidence_score": None, "meta": {}}
+    final_text_holder: dict = {"text": "", "sources": [], "confidence_score": None, "meta": {},
+                                "followups": [], "high_risk": False}
 
     async def event_gen():
-        # Send session_id first
         yield f"event: session\ndata: {json.dumps({'session_id': session_id, 'message_id': assistant_msg_id})}\n\n"
-
         try:
             async for event in rag.stream(
                 query=payload.content,
                 session_id=session_id,
                 history=history,
                 company_id=current_user.get("company_id"),
+                user_jurisdiction=user_juris,
+                sme_corrections=sme_corrections,
             ):
                 etype = event["type"]
                 data = event.get("data")
                 if etype == "sources":
                     final_text_holder["sources"] = data
                     final_text_holder["meta"] = event.get("retrieval_meta", {})
+                    final_text_holder["high_risk"] = event.get("retrieval_meta", {}).get("high_risk", False)
                     yield f"event: sources\ndata: {json.dumps(data)}\n\n"
                 elif etype == "token":
                     yield f"event: token\ndata: {json.dumps(data)}\n\n"
                 elif etype == "done":
                     final_text_holder["text"] = data.get("final_text", "")
                     final_text_holder["confidence_score"] = data.get("confidence_score")
+                    final_text_holder["followups"] = data.get("suggested_followups", [])
                     yield f"event: done\ndata: {json.dumps(data)}\n\n"
                 elif etype == "error":
                     yield f"event: error\ndata: {json.dumps({'message': data})}\n\n"
         finally:
-            # Persist messages (always, even on partial)
             try:
                 await chat_messages_col().insert_many([
                     {"id": user_msg_id, "session_id": session_id, "role": "user",
@@ -142,6 +160,8 @@ async def chat_stream(payload: ChatMessageIn, request: Request, current_user: di
                      "sources": final_text_holder["sources"],
                      "confidence_score": final_text_holder["confidence_score"],
                      "retrieval_meta": final_text_holder["meta"],
+                     "is_high_risk": final_text_holder["high_risk"],
+                     "suggested_followups": final_text_holder["followups"],
                      "created_at": _now_iso()},
                 ])
                 await chat_sessions_col().update_one(
@@ -153,11 +173,7 @@ async def chat_stream(payload: ChatMessageIn, request: Request, current_user: di
     return StreamingResponse(
         event_gen(),
         media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-            "Connection": "keep-alive",
-        },
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
     )
 
 
@@ -190,6 +206,9 @@ async def get_messages(session_id: str, current_user: dict = Depends(get_current
             content=m["content"],
             sources=[SourceReference(**s) for s in (m.get("sources") or [])],
             confidence_score=m.get("confidence_score"),
+            feedback=m.get("feedback"),
+            is_high_risk=m.get("is_high_risk", False),
+            suggested_followups=m.get("suggested_followups", []),
             created_at=_parse_dt(m["created_at"]),
         )
         for m in msgs

@@ -1,4 +1,4 @@
-"""Document upload / management routes (superadmin) — with audit + injection scan."""
+"""Document upload / management routes (superadmin) — with audit, injection scan, versioning, expiry."""
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -36,6 +36,12 @@ def _doc_to_out(doc: dict) -> DocumentOut:
     doc["created_at"] = _parse_dt(doc.get("created_at"))
     if doc.get("processed_at"):
         doc["processed_at"] = _parse_dt(doc["processed_at"])
+    if doc.get("expiry_date"):
+        doc["expiry_date"] = _parse_dt(doc["expiry_date"])
+    # Compute is_expired
+    if doc.get("expiry_date"):
+        exp = doc["expiry_date"]
+        doc["is_expired"] = exp < datetime.now(timezone.utc)
     return DocumentOut(**doc)
 
 
@@ -56,6 +62,8 @@ async def _process_document_bg(doc_id: str, file_path: str, file_ext: str):
             extra_metadata={
                 "company_id": doc.get("company_id") or "",
                 "filename": doc["original_filename"],
+                "jurisdiction": doc.get("jurisdiction") or "",
+                "expiry_date": doc.get("expiry_date") or "",
             },
         )
         await documents_col().update_one(
@@ -84,6 +92,9 @@ async def upload_document(
     source: str = Form(DocumentSource.SUPERADMIN.value),
     tags: Optional[str] = Form(None),
     version: Optional[str] = Form(None),
+    expiry_date: Optional[str] = Form(None),
+    supersedes_id: Optional[str] = Form(None),
+    jurisdiction: Optional[str] = Form(None),
     current_user: dict = Depends(require_superadmin),
 ):
     ext = Path(file.filename).suffix.lower()
@@ -95,6 +106,24 @@ async def upload_document(
         raise HTTPException(413, f"File exceeds {settings.max_upload_size_mb}MB limit")
     if len(contents) < 16:
         raise HTTPException(400, "File is empty or too small")
+
+    # Parse and validate expiry date
+    expiry_iso: Optional[str] = None
+    if expiry_date:
+        try:
+            dt = datetime.fromisoformat(expiry_date.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            expiry_iso = dt.isoformat()
+        except ValueError:
+            raise HTTPException(400, "Invalid expiry_date (use ISO 8601, e.g. 2026-12-31)")
+
+    # Validate supersedes_id
+    superseded_doc: Optional[dict] = None
+    if supersedes_id:
+        superseded_doc = await documents_col().find_one({"id": supersedes_id})
+        if not superseded_doc:
+            raise HTTPException(404, f"supersedes_id={supersedes_id} not found")
 
     upload_dir = Path(settings.upload_dir)
     upload_dir.mkdir(parents=True, exist_ok=True)
@@ -120,6 +149,10 @@ async def upload_document(
         "description": description,
         "tags": tag_list,
         "version": version,
+        "expiry_date": expiry_iso,
+        "supersedes_id": supersedes_id,
+        "superseded_by_id": None,
+        "jurisdiction": jurisdiction,
         "is_processed": False,
         "chunk_count": 0,
         "uploaded_by": current_user.get("sub"),
@@ -129,10 +162,22 @@ async def upload_document(
     }
     await documents_col().insert_one(doc)
 
+    # Retire superseded doc chunks and mark it
+    if superseded_doc:
+        ingestion = IngestionService(get_vector_store())
+        await ingestion.delete_document(superseded_doc["id"])
+        await documents_col().update_one(
+            {"id": superseded_doc["id"]},
+            {"$set": {"superseded_by_id": doc_id, "chunk_count": 0, "is_processed": False}},
+        )
+
     await audit(user=current_user, action="upload_document", resource_type="document",
                 resource_id=doc_id, request=request,
                 details={"filename": file.filename, "size_bytes": len(contents),
-                         "doc_type": doc_type, "source": source})
+                         "doc_type": doc_type, "source": source,
+                         "supersedes_id": supersedes_id,
+                         "jurisdiction": jurisdiction,
+                         "expiry_date": expiry_iso})
 
     background_tasks.add_task(_process_document_bg, doc_id, str(file_path), ext.lstrip("."))
     return _doc_to_out(doc)
@@ -142,6 +187,7 @@ async def upload_document(
 async def list_documents(
     page: int = 1, page_size: int = 50,
     doc_type: Optional[str] = None, source: Optional[str] = None,
+    include_superseded: bool = False,
     current_user: dict = Depends(get_current_user),
 ):
     query = {}
@@ -152,6 +198,8 @@ async def list_documents(
         query["doc_type"] = doc_type
     if source:
         query["source"] = source
+    if not include_superseded:
+        query["superseded_by_id"] = None
 
     total = await documents_col().count_documents(query)
     cursor = documents_col().find(query, {"_id": 0}).sort("created_at", -1).skip((page - 1) * page_size).limit(page_size)
@@ -171,6 +219,9 @@ async def delete_document(doc_id: str, request: Request, current_user: dict = De
     if fp and Path(fp).exists():
         Path(fp).unlink()
     await documents_col().delete_one({"id": doc_id})
+    # Clear superseded_by_id pointer in parent if applicable
+    await documents_col().update_many({"superseded_by_id": doc_id}, {"$set": {"superseded_by_id": None}})
+
     await audit(user=current_user, action="delete_document", resource_type="document",
                 resource_id=doc_id, request=request,
                 details={"title": doc.get("title"), "chunks_removed": doc.get("chunk_count", 0)})

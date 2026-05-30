@@ -12,8 +12,10 @@ import { toast } from "sonner";
 import {
   PaperPlaneTilt, Plus, ChatCircle, ShieldCheck, SignOut, Trash,
   Books, GearSix, FileText, Robot, User as UserIcon, Sparkle,
+  Copy, ThumbsUp, ThumbsDown, Warning, CalendarBlank,
 } from "@phosphor-icons/react";
 import MarkdownRenderer from "@/components/MarkdownRenderer";
+import { createTypewriter } from "@/lib/typewriter";
 
 const SUGGESTIONS = [
   "What are the OSHA requirements for confined space entry?",
@@ -115,6 +117,17 @@ export default function ChatPage() {
     let confidence = null;
     let newSessionId = currentSessionId;
 
+    // Typewriter — gracefully drains backend bursts at ~60 chars/sec
+    const typewriter = createTypewriter({
+      rate: 80,
+      maxBurst: 5,
+      onUpdate: (text) => {
+        setMessages((prev) => prev.map((m) =>
+          m.message_id === tempAsstId ? { ...m, content: text } : m,
+        ));
+      },
+    });
+
     try {
       const resp = await fetch(url, {
         method: "POST",
@@ -146,15 +159,21 @@ export default function ChatPage() {
             m.message_id === tempAsstId ? { ...m, sources: data } : m,
           ));
         } else if (eventType === "token") {
-          streamedText += (typeof data === "string" ? data : String(data));
-          setMessages((prev) => prev.map((m) =>
-            m.message_id === tempAsstId ? { ...m, content: streamedText } : m,
-          ));
+          const t = typeof data === "string" ? data : String(data);
+          typewriter.append(t);
         } else if (eventType === "done") {
           confidence = data?.confidence_score ?? null;
+          typewriter.forceComplete();
           setMessages((prev) => prev.map((m) =>
             m.message_id === tempAsstId
-              ? { ...m, content: data?.final_text || streamedText, confidence_score: confidence, _streaming: false }
+              ? {
+                  ...m,
+                  content: data?.final_text || typewriter.getRevealed(),
+                  confidence_score: confidence,
+                  is_high_risk: !!data?.is_high_risk,
+                  suggested_followups: data?.suggested_followups || [],
+                  _streaming: false,
+                }
               : m,
           ));
         } else if (eventType === "error") {
@@ -185,6 +204,8 @@ export default function ChatPage() {
       toast.error(e?.message || "Chat failed");
       setMessages((prev) => prev.filter((m) => m.message_id !== tempAsstId && m.message_id !== tempUserId));
     } finally {
+      try { await typewriter.flush(); } catch {}
+      typewriter.dispose();
       setSending(false);
     }
   };
@@ -199,6 +220,24 @@ export default function ChatPage() {
     } catch {
       toast.error("Delete failed");
     }
+  };
+
+  const submitFeedback = async (messageId, rating) => {
+    try {
+      await api.post(`/feedback/${messageId}`, { rating });
+      setMessages((prev) => prev.map((m) =>
+        m.message_id === messageId ? { ...m, feedback: rating } : m,
+      ));
+      toast.success(rating === "up" ? "Thanks for the feedback" : "Flagged — your safety team will review");
+    } catch (e) {
+      toast.error("Couldn't save feedback");
+    }
+  };
+
+  const copyMessage = (text) => {
+    navigator.clipboard.writeText(text || "")
+      .then(() => toast.success("Copied"))
+      .catch(() => toast.error("Copy failed"));
   };
 
   const isEmpty = messages.length === 0;
@@ -327,7 +366,13 @@ export default function ChatPage() {
                 ) : (
                   <div className="space-y-6">
                     {messages.map((m) => (
-                      <MessageRow key={m.message_id} msg={m} />
+                      <MessageRow
+                        key={m.message_id}
+                        msg={m}
+                        onCopy={copyMessage}
+                        onFeedback={submitFeedback}
+                        onFollowup={(q) => send(q)}
+                      />
                     ))}
                     {sending && messages.length > 0 && messages[messages.length - 1]?.role === "assistant" && !messages[messages.length - 1]?.content && !messages[messages.length - 1]?.sources?.length && (
                       <div className="flex gap-3 -mt-3" data-testid="thinking-indicator">
@@ -373,7 +418,7 @@ export default function ChatPage() {
                   </Button>
                 </form>
                 <div className="mt-2 font-mono text-[10px] uppercase tracking-[0.2em] text-slate-400 text-center">
-                  Enter to send · Shift+Enter for newline · Answers are AI-generated; verify against your safety procedures
+                  Enter to send · Shift+Enter for newline · <span className="text-amber-700">AI-generated — not a substitute for professional EHS advice. Verify before acting.</span>
                 </div>
               </div>
             </div>
@@ -433,7 +478,7 @@ function EmptyState({ onPick }) {
   );
 }
 
-function MessageRow({ msg }) {
+function MessageRow({ msg, onCopy, onFeedback, onFollowup }) {
   if (msg.role === "user") {
     return (
       <div className="flex gap-3" data-testid="user-message">
@@ -455,22 +500,19 @@ function MessageRow({ msg }) {
       <div className="flex-1 pt-1 min-w-0">
         <div className="flex items-center gap-2 mb-1">
           <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-slate-500">EHS AI</div>
+          {msg.is_high_risk && (
+            <Badge data-testid="high-risk-badge" className="rounded-sm bg-rose-50 text-rose-800 border border-rose-300 hover:bg-rose-50 font-mono text-[10px] uppercase tracking-wider px-1.5 py-0">
+              <Warning size={10} weight="bold" className="mr-0.5" />High Risk
+            </Badge>
+          )}
           {typeof msg.confidence_score === "number" && (
-            <Badge
-              data-testid="confidence-badge"
-              className="rounded-sm bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-50 font-mono text-[10px] uppercase tracking-wider px-1.5 py-0"
-            >
+            <Badge data-testid="confidence-badge" className="rounded-sm bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-50 font-mono text-[10px] uppercase tracking-wider px-1.5 py-0">
               {(msg.confidence_score * 100).toFixed(0)}% match
             </Badge>
           )}
         </div>
-        <MarkdownRenderer
-          content={msg.content || (msg._streaming ? "" : "")}
-          sources={msg.sources || []}
-        />
-        {msg._streaming && (
-          <span className="streaming-dot" data-testid="streaming-cursor"></span>
-        )}
+        <MarkdownRenderer content={msg.content || ""} sources={msg.sources || []} />
+        {msg._streaming && <span className="streaming-dot" data-testid="streaming-cursor"></span>}
         {msg.sources?.length > 0 && (
           <div className="mt-4 pt-3 border-t border-slate-200">
             <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-slate-500 mb-2">Citations</div>
@@ -493,6 +535,59 @@ function MessageRow({ msg }) {
             </div>
           </div>
         )}
+        {!msg._streaming && msg.content && (
+          <div className="mt-3 flex items-center gap-1" data-testid="message-actions">
+            <button
+              onClick={() => onCopy?.(msg.content)}
+              data-testid={`copy-msg-${msg.message_id}`}
+              className="flex items-center gap-1 text-[10px] font-mono uppercase tracking-wider px-2 py-1 border border-transparent hover:border-slate-200 hover:bg-slate-50 text-slate-500 hover:text-slate-800 transition-colors"
+              title="Copy answer"
+            >
+              <Copy size={12} weight="bold" /> Copy
+            </button>
+            <button
+              onClick={() => onFeedback?.(msg.message_id, "up")}
+              data-testid={`thumbs-up-${msg.message_id}`}
+              className={`flex items-center gap-1 text-[10px] font-mono uppercase tracking-wider px-2 py-1 border transition-colors ${
+                msg.feedback === "up"
+                  ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+                  : "border-transparent hover:border-emerald-200 hover:bg-emerald-50 text-slate-500 hover:text-emerald-700"
+              }`}
+              title="Helpful"
+            >
+              <ThumbsUp size={12} weight={msg.feedback === "up" ? "fill" : "bold"} /> Helpful
+            </button>
+            <button
+              onClick={() => onFeedback?.(msg.message_id, "down")}
+              data-testid={`thumbs-down-${msg.message_id}`}
+              className={`flex items-center gap-1 text-[10px] font-mono uppercase tracking-wider px-2 py-1 border transition-colors ${
+                msg.feedback === "down"
+                  ? "border-rose-300 bg-rose-50 text-rose-700"
+                  : "border-transparent hover:border-rose-200 hover:bg-rose-50 text-slate-500 hover:text-rose-700"
+              }`}
+              title="Flag for SME review"
+            >
+              <ThumbsDown size={12} weight={msg.feedback === "down" ? "fill" : "bold"} /> Flag
+            </button>
+          </div>
+        )}
+        {!msg._streaming && msg.suggested_followups?.length > 0 && (
+          <div className="mt-3" data-testid="followups">
+            <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-slate-500 mb-2">Follow-up</div>
+            <div className="flex flex-wrap gap-2">
+              {msg.suggested_followups.map((q, i) => (
+                <button
+                  key={i}
+                  onClick={() => onFollowup?.(q)}
+                  data-testid={`followup-${i}`}
+                  className="text-left text-xs px-3 py-1.5 bg-white hover:bg-blue-50 hover:border-blue-300 text-slate-700 hover:text-blue-800 border border-slate-300 transition-colors"
+                >
+                  <span className="text-blue-600 mr-1">↗</span>{q}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -500,6 +595,7 @@ function MessageRow({ msg }) {
 
 function SourceCard({ index, src }) {
   const label = SOURCE_LABELS[src.source] || { text: src.source, color: "bg-slate-700 text-white" };
+  const lu = src.last_updated ? new Date(src.last_updated) : null;
   return (
     <div className="bg-white border border-slate-200 hover:border-slate-400 transition-colors p-3 group" data-testid={`source-card-${index}`}>
       <div className="flex items-start justify-between gap-2 mb-2">
@@ -514,14 +610,25 @@ function SourceCard({ index, src }) {
         <span className="text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 bg-slate-100 border border-slate-200 text-slate-700">
           {DOC_TYPE_LABELS[src.doc_type] || src.doc_type}
         </span>
+        {src.jurisdiction && (
+          <span className="text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 bg-blue-50 border border-blue-200 text-blue-800">
+            {src.jurisdiction}
+          </span>
+        )}
       </div>
-      <div className="text-xs text-slate-600 line-clamp-3 leading-snug">{src.chunk_text}</div>
+      <div className="text-xs text-slate-600 line-clamp-3 leading-snug mb-1.5">{src.chunk_text}</div>
+      {lu && !isNaN(lu) && (
+        <div className="font-mono text-[9px] uppercase tracking-wider text-slate-400">
+          Updated {lu.toISOString().slice(0, 10)}
+        </div>
+      )}
     </div>
   );
 }
 
 function SourceInner({ src }) {
   const label = SOURCE_LABELS[src.source] || { text: src.source, color: "bg-slate-700 text-white" };
+  const lu = src.last_updated ? new Date(src.last_updated) : null;
   return (
     <div>
       <div className="flex flex-wrap gap-1 mb-2">
@@ -529,12 +636,22 @@ function SourceInner({ src }) {
         <span className="text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 bg-slate-100 border border-slate-200 text-slate-700">
           {DOC_TYPE_LABELS[src.doc_type] || src.doc_type}
         </span>
+        {src.jurisdiction && (
+          <span className="text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 bg-blue-50 border border-blue-200 text-blue-800">
+            {src.jurisdiction}
+          </span>
+        )}
         <span className="text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 bg-emerald-50 border border-emerald-200 text-emerald-700">
           {(src.similarity_score * 100).toFixed(0)}% match
         </span>
       </div>
       <div className="font-semibold text-sm text-slate-900 mb-2">{src.title}</div>
       <div className="text-xs text-slate-600 leading-relaxed max-h-48 overflow-y-auto">{src.chunk_text}</div>
+      {lu && !isNaN(lu) && (
+        <div className="font-mono text-[9px] uppercase tracking-wider text-slate-400 mt-2">
+          As of {lu.toISOString().slice(0, 10)}
+        </div>
+      )}
     </div>
   );
 }
