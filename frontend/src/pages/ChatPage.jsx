@@ -16,6 +16,7 @@ import {
 } from "@phosphor-icons/react";
 import MarkdownRenderer from "@/components/MarkdownRenderer";
 import { createTypewriter } from "@/lib/typewriter";
+import { authStore } from "@/lib/auth-store";
 
 const SUGGESTIONS = [
   "What are the OSHA requirements for confined space entry?",
@@ -109,7 +110,7 @@ export default function ChatPage() {
     setMessages((m) => [...m, tempUserMsg, tempAsstMsg]);
     setInput("");
 
-    const token = localStorage.getItem("ehs_token");
+    const token = authStore.getToken();
     const url = `${process.env.REACT_APP_BACKEND_URL}/api/chat/stream`;
     let buffer = "";
     let streamedText = "";
@@ -211,7 +212,7 @@ export default function ChatPage() {
       toast.error(e?.message || "Chat failed");
       setMessages((prev) => prev.filter((m) => m.message_id !== tempAsstId && m.message_id !== tempUserId));
     } finally {
-      try { await typewriter.flush(); } catch {}
+      try { await typewriter.flush(); } catch (e) { console.warn("[chat] typewriter flush:", e?.message); }
       typewriter.dispose();
       setSending(false);
     }
@@ -538,7 +539,7 @@ function MessageRow({ msg, onCopy, onFeedback, onFollowup, onAcknowledge }) {
             <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-slate-500 mb-2">Citations</div>
             <div className="flex flex-wrap gap-1">
               {msg.sources.map((s, i) => (
-                <HoverCard key={i} openDelay={200}>
+                <HoverCard key={`${s.doc_id || "src"}-${i}`} openDelay={200}>
                   <HoverCardTrigger asChild>
                     <button
                       className="font-mono text-[10px] uppercase tracking-wider px-2 py-1 bg-slate-100 hover:bg-slate-900 hover:text-white border border-slate-200 transition-colors"
@@ -619,7 +620,7 @@ function MessageRow({ msg, onCopy, onFeedback, onFollowup, onAcknowledge }) {
             <div className="flex flex-wrap gap-2">
               {msg.suggested_followups.map((q, i) => (
                 <button
-                  key={i}
+                  key={`fu-${i}-${(q || "").slice(0, 20)}`}
                   onClick={() => onFollowup?.(q)}
                   data-testid={`followup-${i}`}
                   className="text-left text-xs px-3 py-1.5 bg-white hover:bg-blue-50 hover:border-blue-300 text-slate-700 hover:text-blue-800 border border-slate-300 transition-colors"

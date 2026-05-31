@@ -1,19 +1,18 @@
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api";
+import { authStore } from "@/lib/auth-store";
 
 const AuthCtx = createContext(null);
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("ehs_user") || "null"); } catch { return null; }
-  });
+  const [user, setUser] = useState(() => authStore.getUser());
   const [loading, setLoading] = useState(false);
 
-  const persist = (token, u) => {
-    localStorage.setItem("ehs_token", token);
-    localStorage.setItem("ehs_user", JSON.stringify(u));
+  const persist = useCallback((token, u) => {
+    authStore.setToken(token);
+    authStore.setUser(u);
     setUser(u);
-  };
+  }, []);
 
   const login = useCallback(async (email, password) => {
     setLoading(true);
@@ -29,7 +28,7 @@ export function AuthProvider({ children }) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [persist]);
 
   const register = useCallback(async (payload) => {
     setLoading(true);
@@ -45,11 +44,10 @@ export function AuthProvider({ children }) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [persist]);
 
   const logout = useCallback(() => {
-    localStorage.removeItem("ehs_token");
-    localStorage.removeItem("ehs_user");
+    authStore.clear();
     setUser(null);
   }, []);
 

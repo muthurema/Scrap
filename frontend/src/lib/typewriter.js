@@ -27,7 +27,7 @@ export function createTypewriter({ rate = 60, onUpdate, maxBurst = 8 } = {}) {
     const step = Math.max(1, Math.min(maxBurst, Math.floor(buffer.length / 30)));
     revealed += buffer.slice(0, step);
     buffer = buffer.slice(step);
-    try { onUpdate?.(revealed); } catch {}
+    try { onUpdate?.(revealed); } catch (e) { console.error("[typewriter] onUpdate failed:", e); }
     timer = setTimeout(tick, 1000 / rate);
   };
 
@@ -46,7 +46,7 @@ export function createTypewriter({ rate = 60, onUpdate, maxBurst = 8 } = {}) {
     forceComplete() {
       revealed += buffer;
       buffer = "";
-      try { onUpdate?.(revealed); } catch {}
+      try { onUpdate?.(revealed); } catch (e) { console.error("[typewriter] onUpdate failed:", e); }
       if (timer) { clearTimeout(timer); timer = null; }
       if (onDone) { const cb = onDone; onDone = null; cb(); }
     },

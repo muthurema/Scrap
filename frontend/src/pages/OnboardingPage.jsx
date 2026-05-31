@@ -51,11 +51,17 @@ export default function OnboardingPage() {
       await api.patch("/users/me", {
         site, role_label: roleLabel, jurisdiction, industry_sector: industry,
       });
-      // Update local user
-      const u = JSON.parse(localStorage.getItem("ehs_user") || "{}");
-      u.needs_onboarding = false;
-      u.jurisdiction = jurisdiction;
-      localStorage.setItem("ehs_user", JSON.stringify(u));
+      // Persist local user object change (e.g. needs_onboarding=false)
+      try {
+        const stored = JSON.parse(sessionStorage.getItem("ehs_user") || "null");
+        if (stored) {
+          stored.needs_onboarding = false;
+          stored.jurisdiction = jurisdiction;
+          sessionStorage.setItem("ehs_user", JSON.stringify(stored));
+        }
+      } catch (err) {
+        console.warn("[onboarding] could not update local user:", err?.message);
+      }
       toast.success("Profile saved");
       navigate(user?.role === "superadmin" ? "/admin/stats" : "/chat");
     } catch (err) {

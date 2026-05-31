@@ -1,5 +1,6 @@
 import { useEffect, useState, Fragment } from "react";
 import { api } from "@/lib/api";
+import { authStore } from "@/lib/auth-store";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
@@ -28,7 +29,7 @@ export default function AcknowledgementsPage() {
 
   const downloadCSV = async () => {
     try {
-      const token = localStorage.getItem("ehs_token");
+      const token = authStore.getToken();
       const url = `${process.env.REACT_APP_BACKEND_URL}/api/acknowledgements/export/csv?high_risk_only=${highRiskOnly}`;
       const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
       const blob = await resp.blob();
@@ -158,7 +159,7 @@ export default function AcknowledgementsPage() {
                             <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-slate-500 mt-3 mb-1">Source titles at moment of ack</div>
                             <div className="flex flex-wrap gap-1">
                               {it.sources_snapshot.map((s, i) => (
-                                <span key={i} className="font-mono text-[10px] uppercase tracking-wider px-1.5 py-0.5 bg-white border border-slate-200 text-slate-700">[{i + 1}] {(s.title || "").slice(0, 50)}</span>
+                                <span key={`ack-src-${it.id}-${i}`} className="font-mono text-[10px] uppercase tracking-wider px-1.5 py-0.5 bg-white border border-slate-200 text-slate-700">[{i + 1}] {(s.title || "").slice(0, 50)}</span>
                               ))}
                             </div>
                           </>

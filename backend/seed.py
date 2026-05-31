@@ -20,8 +20,8 @@ from app.vector_store import get_vector_store
 from app.ingestion import IngestionService
 
 
-ADMIN_EMAIL = "admin@ehsrag.com"
-ADMIN_PASSWORD = "Admin@12345"
+ADMIN_EMAIL = os.environ.get("SEED_ADMIN_EMAIL", "admin@ehsrag.com")
+ADMIN_PASSWORD = os.environ.get("SEED_ADMIN_PASSWORD", "Admin@12345")
 ADMIN_FULL_NAME = "EHS Superadmin"
 
 
