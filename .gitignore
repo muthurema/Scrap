@@ -95,3 +95,6 @@ frontend/node_modules/.cache/default-development/25.pack
 backend/uploads/43c1bd3d-e227-446c-8043-b3be6edb3cc5.pdf
 backend/uploads/e78311a7-090a-4894-8490-5a78b602bdcc.pdf
 frontend/node_modules/.cache/default-development/11.pack
+.env
+.env.*
+*.env
