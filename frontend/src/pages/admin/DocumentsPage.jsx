@@ -26,11 +26,16 @@ const SOURCES = [
 const JURISDICTIONS = ["", "US", "UK", "EU", "AU", "IN", "CA", "GLOBAL"];
 
 export default function DocumentsPage() {
+  const PAGE_SIZE = 100;
   const [docs, setDocs] = useState([]);
   const [totalDocs, setTotalDocs] = useState(0);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const fileRef = useRef(null);
+  const sentinelRef = useRef(null);
   const [busy, setBusy] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(null); // { current, total, currentName, failed: [] }
   const uploadAbortRef = useRef(null);
@@ -42,11 +47,14 @@ export default function DocumentsPage() {
   });
   const [replacingDoc, setReplacingDoc] = useState(null);
 
+  // Reload from page 1 (used after upload / delete / cancel / first mount + poll)
   const load = async () => {
     try {
-      const { data } = await api.get("/documents/?page_size=2000");
+      const { data } = await api.get(`/documents/?page=1&page_size=${PAGE_SIZE}`);
       setDocs(data.items);
       setTotalDocs(data.total ?? data.items.length);
+      setPage(1);
+      setHasMore(data.items.length < (data.total ?? 0));
     } catch (e) {
       console.error(e);
     } finally {
@@ -54,11 +62,71 @@ export default function DocumentsPage() {
     }
   };
 
+  // Append next page (used by Load more button + infinite scroll sentinel)
+  const loadMore = async () => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      const nextPage = page + 1;
+      const { data } = await api.get(`/documents/?page=${nextPage}&page_size=${PAGE_SIZE}`);
+      setDocs((prev) => {
+        // Dedupe in case a doc appeared on both pages due to a concurrent upload
+        const seen = new Set(prev.map((d) => d.id));
+        const fresh = data.items.filter((d) => !seen.has(d.id));
+        return [...prev, ...fresh];
+      });
+      setTotalDocs(data.total ?? totalDocs);
+      setPage(nextPage);
+      // hasMore stays true until we've fetched as many items as total reports
+      setHasMore((prev) => {
+        const fetchedSoFar = docs.length + data.items.length;
+        return fetchedSoFar < (data.total ?? 0);
+      });
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
+  // Initial load
   useEffect(() => {
     load();
-    const t = setInterval(load, 5000);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Lightweight refresh of the first page every 5s — only updates statuses of
+  // already-shown docs (in-flight PROCESSING transitions). Doesn't touch the
+  // user's loaded-more state or scroll position.
+  useEffect(() => {
+    const t = setInterval(async () => {
+      try {
+        const { data } = await api.get(`/documents/?page=1&page_size=${PAGE_SIZE}`);
+        setTotalDocs(data.total ?? 0);
+        setDocs((prev) => {
+          const updateMap = new Map(data.items.map((d) => [d.id, d]));
+          // Merge fresh data into existing rows; keep loaded-more rows intact
+          const merged = prev.map((d) => updateMap.get(d.id) || d);
+          // Append any brand-new docs (uploads) that aren't yet in the list
+          const seen = new Set(prev.map((d) => d.id));
+          const fresh = data.items.filter((d) => !seen.has(d.id));
+          return [...fresh, ...merged];
+        });
+      } catch (_) {}
+    }, 5000);
     return () => clearInterval(t);
   }, []);
+
+  // Infinite scroll — when sentinel comes into view, fetch next page
+  useEffect(() => {
+    if (!sentinelRef.current || !hasMore) return;
+    const obs = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting) loadMore();
+    }, { rootMargin: "200px" });
+    obs.observe(sentinelRef.current);
+    return () => obs.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasMore, page, loadingMore]);
 
   const cancelInflightUpload = () => {
     cancelRequestedRef.current = true;
@@ -384,7 +452,7 @@ export default function DocumentsPage() {
         Showing <span className="text-slate-900 font-bold">{docs.length}</span> of <span className="text-slate-900 font-bold">{totalDocs}</span> documents
         {totalDocs > docs.length && (
           <span className="text-amber-700 normal-case lowercase tracking-normal">
-            · {totalDocs - docs.length} more available — page size capped at 2000
+            · {totalDocs - docs.length} more — scroll down or click "Load more"
           </span>
         )}
       </div>
@@ -472,6 +540,28 @@ export default function DocumentsPage() {
         </table>
         </div>
       </div>
+
+      {/* Infinite-scroll sentinel + manual Load more fallback */}
+      {hasMore && (
+        <div ref={sentinelRef} className="mt-4 flex justify-center" data-testid="load-more-sentinel">
+          <button
+            type="button"
+            onClick={loadMore}
+            disabled={loadingMore}
+            data-testid="load-more-btn"
+            className="px-4 py-2 border border-slate-300 hover:border-slate-500 bg-white hover:bg-slate-50 font-mono text-xs uppercase tracking-wider text-slate-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {loadingMore
+              ? "LOADING…"
+              : `LOAD MORE (${totalDocs - docs.length} REMAINING)`}
+          </button>
+        </div>
+      )}
+      {!hasMore && docs.length > 0 && totalDocs > PAGE_SIZE && (
+        <div className="mt-4 text-center font-mono text-[10px] uppercase tracking-wider text-slate-400" data-testid="end-of-list">
+          End of list · {docs.length} docs shown
+        </div>
+      )}
     </div>
   );
 }
