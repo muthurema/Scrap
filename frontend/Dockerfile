@@ -4,8 +4,13 @@
 FROM node:20-alpine AS build
 WORKDIR /app
 
-COPY package.json yarn.lock ./
-RUN yarn install --frozen-lockfile --network-timeout 600000
+COPY package.json ./
+COPY yarn.loc[k] ./
+RUN if [ -f yarn.lock ]; then \
+        yarn install --frozen-lockfile --network-timeout 600000; \
+    else \
+        yarn install --network-timeout 600000; \
+    fi
 
 COPY . ./
 # REACT_APP_BACKEND_URL is baked at build time. Railway lets you set build-time

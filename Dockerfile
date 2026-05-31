@@ -2,9 +2,15 @@
 FROM node:20-alpine AS frontend-build
 WORKDIR /frontend
 
-# Install deps with cache
-COPY frontend/package.json frontend/yarn.lock ./
-RUN yarn install --frozen-lockfile --network-timeout 600000
+# Install deps with cache. Copy package.json (and yarn.lock if present) then install.
+# We use a glob so the build doesn't fail when yarn.lock isn't committed to the repo.
+COPY frontend/package.json ./
+COPY frontend/yarn.loc[k] ./
+RUN if [ -f yarn.lock ]; then \
+        yarn install --frozen-lockfile --network-timeout 600000; \
+    else \
+        yarn install --network-timeout 600000; \
+    fi
 
 # Build (BACKEND_URL is empty → same-origin axios calls, perfect for one-service deploy)
 COPY frontend/ ./
