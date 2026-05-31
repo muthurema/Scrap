@@ -250,6 +250,41 @@ EHS (Environment, Health & Safety) RAG chatbot for Turnstile360 — adapted from
 - Diagnose production hang at rag.turnstile360.com (use Re-seed Corpus button after redeploy)
 - Cleanup `// authenticate` placeholder comments across frontend/backend (P2)
 
+## v3.8 — Latency optimizations + 3-tier knowledge architecture (Feb 2026)
+
+User picked option (c) — full plan: latency P0+P1 plus diagram-parity 3-tier model and global URL seed.
+
+### Latency wins (measured)
+- `sources` SSE event: **7s → 4.8s** (parallel HyDE retrieval — raw + rewritten search in `asyncio.gather`, 2.5s HyDE timeout fallback)
+- Total stream duration: **22-29s → 16s** (followups no longer block `done`; new lazy `POST /api/chat/sessions/{id}/followups` endpoint, idempotent + cached on the assistant message)
+- Cached followups call: **159ms** (sub-second after first generation)
+- Skip-rerank when ≤3 candidates: avoids 500ms-2s of cross-encoder CPU work on narrow queries
+- LRU embedding cache (1000-entry, ~1.5 MB) for dense+sparse query vectors with whitespace-normalized SHA256 keys
+
+### 3-tier knowledge architecture
+- New `KnowledgeTier` enum: `GLOBAL` / `REGIONAL` / `COMPANY`
+- New `DocumentSource.REGIONAL_BASE` for jurisdiction-specific authoritative content (UK HSE, Safe Work AU, Singapore MOM, India Factories Act, etc.)
+- `SOURCE_TO_TIER` mapping stamps `tier` on every chunk payload at ingest time
+- Every chunk now also carries `freshness_ts` (ISO UTC) — diagram parity item
+- Retrieval-time tier boost: COMPANY 1.20× / REGIONAL 1.05× / GLOBAL 1.0× — compounds with existing jurisdiction boost
+- Updated system prompt rule #1: "Three-tier precedence on conflict" with explicit COMPANY > REGIONAL > GLOBAL ordering
+- `SourceReference.tier` field now exposed to the frontend (lets the chat UI show "Regional UK" / "Global ISO" / "Company SOP" badges)
+- Superadmin upload route now accepts `source ∈ {base_corpus, regional_base}` — `regional_base` requires `jurisdiction` to be set (400 error otherwise)
+- DocumentsPage UI updated: source dropdown now exposes Global vs Regional with helper text
+
+### Pre-seeded global corpus
+- New `python /app/backend/seed_global_sources.py` (idempotent) — registers 19 authoritative URLs as `WebSource` rows with `tier=global`, `scrape_frequency=weekly`:
+  - International: ILO ×2, WHO, UNEP, UN GHS Purple Book
+  - US: OSHA ×2, EPA, NIOSH
+  - EU: EU-OSHA, ECHA, EU CSRD
+  - ISO: 45001, 14001, 14064
+  - Best practice: IOSH, NSC, EHS Daily Advisor, Campbell Institute
+
+### Verified
+- **iteration_6**: 14/14 PASSED + iter5 regression 12/12 PASSED, 0 critical
+- Smoke: regional upload without jurisdiction → 400; with jurisdiction → 201 → tier=regional in chunks; delete → 204
+- All existing chat / auth / docs / web-source flows intact
+
 ## v3.7 — CORS error on DELETE /documents/{id} in production (Feb 2026, P0 follow-up)
 
 ### Problem

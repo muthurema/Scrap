@@ -110,10 +110,22 @@ async def upload_document(
     jurisdiction: Optional[str] = Form(None),
     current_user: dict = Depends(require_admin),
 ):
-    # RBAC: superadmin → base_corpus only. admin → company-scoped only.
+    # RBAC: superadmin can upload to global (base_corpus) or regional tier.
+    # Admins are confined to their own company.
+    SUPERADMIN_ALLOWED_SOURCES = {
+        DocumentSource.BASE_CORPUS.value,
+        DocumentSource.REGIONAL_BASE.value,
+    }
     if current_user.get("role") == "superadmin":
-        if source != DocumentSource.BASE_CORPUS.value:
+        if source not in SUPERADMIN_ALLOWED_SOURCES:
             source = DocumentSource.BASE_CORPUS.value
+        if source == DocumentSource.REGIONAL_BASE.value and not jurisdiction:
+            raise HTTPException(
+                400,
+                "Regional-tier uploads require a `jurisdiction` value "
+                "(e.g. 'UK', 'AU', 'SG'). Omit jurisdiction for true global "
+                "(base_corpus) sources.",
+            )
         company_id_for_doc = None
     else:
         if not current_user.get("company_id"):

@@ -20,7 +20,8 @@ const DOC_TYPES = [
 
 const SOURCES = [
   ["superadmin", "Company (Superadmin)"],
-  ["base_corpus", "Base Corpus (Global)"],
+  ["base_corpus", "Global — base corpus (no jurisdiction)"],
+  ["regional_base", "Regional — jurisdiction-specific (requires jurisdiction)"],
 ];
 
 const JURISDICTIONS = ["", "US", "UK", "EU", "AU", "IN", "CA", "GLOBAL"];
