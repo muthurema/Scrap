@@ -27,17 +27,17 @@ export default function AnalyticsPage() {
 
   const maxDay = useMemo(() => Math.max(...(data?.daily_query_counts || []).map((d) => d.count), 1), [data]);
 
-  if (loading && !data) return <div className="p-8 font-mono text-xs uppercase tracking-wider text-slate-500">LOADING...</div>;
+  if (loading && !data) return <div className="p-4 sm:p-8 font-mono text-xs uppercase tracking-wider text-slate-500">LOADING...</div>;
 
   const fb = data?.feedback_summary || {};
 
   return (
-    <div className="p-8 max-w-7xl" data-testid="analytics-page">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl" data-testid="analytics-page">
       <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-slate-500 mb-2">Query intelligence</div>
-      <h1 className="text-4xl font-black tracking-tighter text-slate-900 mb-1">Analytics</h1>
-      <p className="text-slate-600">Last 30 days · what users ask, what works, what doesn't.</p>
+      <h1 className="text-3xl sm:text-4xl font-black tracking-tighter text-slate-900 mb-1">Analytics</h1>
+      <p className="text-slate-600 text-sm sm:text-base">Last 30 days · what users ask, what works, what doesn't.</p>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-px bg-slate-200 border border-slate-300 mt-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-slate-200 border border-slate-300 mt-6">
         <Tile icon={ChatCircle} label="Total Queries" value={(data?.daily_query_counts || []).reduce((s, d) => s + d.count, 0)} />
         <Tile icon={ThumbsUp} label="Thumbs Up" value={fb.thumbs_up || 0} accent="emerald" />
         <Tile icon={ThumbsDown} label="Thumbs Down" value={fb.thumbs_down || 0} accent="rose" sublabel={`${fb.pending_review || 0} pending review`} />

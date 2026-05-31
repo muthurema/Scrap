@@ -46,14 +46,14 @@ export default function FeedbackQueuePage() {
   };
 
   return (
-    <div className="p-8 max-w-5xl" data-testid="feedback-queue-page">
-      <div className="flex items-end justify-between mb-6">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-5xl" data-testid="feedback-queue-page">
+      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-6">
         <div>
           <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-slate-500 mb-2">Human-in-the-loop</div>
-          <h1 className="text-4xl font-black tracking-tighter text-slate-900 mb-1">Feedback Review</h1>
-          <p className="text-slate-600">Answers users flagged as wrong. Your SME annotation becomes authoritative context for future similar questions.</p>
+          <h1 className="text-3xl sm:text-4xl font-black tracking-tighter text-slate-900 mb-1">Feedback Review</h1>
+          <p className="text-slate-600 text-sm sm:text-base">Answers users flagged as wrong. Your SME annotation becomes authoritative context for future similar questions.</p>
         </div>
-        <div className="flex gap-px bg-slate-300 border border-slate-300">
+        <div className="flex gap-px bg-slate-300 border border-slate-300 self-start sm:self-auto">
           <button
             onClick={() => setReviewed(false)}
             data-testid="filter-pending"
@@ -89,13 +89,13 @@ export default function FeedbackQueuePage() {
         <div className="space-y-4">
           {items.map((it) => (
             <div key={it.id} className="border border-slate-300 bg-white" data-testid={`feedback-${it.id}`}>
-              <div className="px-4 py-2.5 bg-rose-50 border-b border-rose-200 flex items-center gap-3">
+              <div className="px-3 sm:px-4 py-2.5 bg-rose-50 border-b border-rose-200 flex items-center flex-wrap gap-2 sm:gap-3">
                 <ThumbsDown size={14} weight="bold" className="text-rose-700" />
                 <Badge className="font-mono text-[10px] uppercase tracking-wider bg-rose-100 text-rose-800 border border-rose-200 hover:bg-rose-100">Thumbs down</Badge>
                 <div className="font-mono text-[10px] text-slate-600">{(it.created_at || "").slice(0, 19).replace("T", " ")}</div>
-                <div className="ml-auto text-xs text-slate-700">{it.user_email}</div>
+                <div className="sm:ml-auto text-xs text-slate-700 truncate max-w-full">{it.user_email}</div>
               </div>
-              <div className="p-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="p-3 sm:p-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <div>
                   <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-slate-500 mb-1">User asked</div>
                   <div className="text-sm bg-slate-50 border border-slate-200 p-3 rounded-sm">{it.user_query || "—"}</div>

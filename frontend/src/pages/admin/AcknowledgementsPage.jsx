@@ -44,14 +44,14 @@ export default function AcknowledgementsPage() {
   };
 
   return (
-    <div className="p-8 max-w-7xl" data-testid="acknowledgements-page">
-      <div className="flex items-end justify-between mb-6">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl" data-testid="acknowledgements-page">
+      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-6">
         <div>
           <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-slate-500 mb-2">Compliance audit trail</div>
-          <h1 className="text-4xl font-black tracking-tighter text-slate-900 mb-1">Acknowledgements</h1>
-          <p className="text-slate-600">Immutable evidence that workers read and accepted EHS guidance. Exportable for regulatory audit.</p>
+          <h1 className="text-3xl sm:text-4xl font-black tracking-tighter text-slate-900 mb-1">Acknowledgements</h1>
+          <p className="text-slate-600 text-sm sm:text-base">Immutable evidence that workers read and accepted EHS guidance. Exportable for regulatory audit.</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <div className="flex gap-px bg-slate-300 border border-slate-300">
             <button
               onClick={() => setHighRiskOnly(false)}
@@ -95,7 +95,8 @@ export default function AcknowledgementsPage() {
         </div>
       ) : (
         <div className="border border-slate-300 bg-white overflow-hidden">
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[860px]">
             <thead className="bg-slate-100">
               <tr>
                 <th className="text-left px-3 py-2 border-b border-slate-300 font-mono text-[10px] uppercase tracking-wider text-slate-600">When</th>
@@ -177,6 +178,7 @@ export default function AcknowledgementsPage() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
     </div>

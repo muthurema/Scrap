@@ -136,13 +136,37 @@ EHS (Environment, Health & Safety) RAG chatbot for Turnstile360 — adapted from
 - **Offline / PWA mode** for low-connectivity field workers
 - **Knowledge graph layer** on top of vectors for multi-hop reasoning
 - **Notification & alerts** (regulation changes in your juris, permit renewals, document expiry warnings)
-- **Acknowledgement workflow** (user clicks "I understand" on critical procedures → audit trail)
 - **Compliance digest email** (Monday 8am with new pending reviews + top unanswered queries)
 - **Refresh-token rotation** for production JWT
-- **Mobile-responsive polish** for field tablet use
+
+## v3.1 — Mobile / Tablet Responsiveness (Feb 2026)
+
+### Implemented
+- **ChatPage**: sidebar slides as drawer below `lg` (1024px) with backdrop overlay; hamburger trigger in header; "Online" short label on small screens; EmptyState `text-3xl sm:text-4xl lg:text-5xl`; chat input padding tightened; textarea `text-base` to prevent iOS Safari auto-zoom; message-action toolbar wraps
+- **AdminLayout**: sidebar slides as drawer below `lg`; new mobile top-bar with hamburger + current section title; nav items auto-close drawer on tap
+- **All Admin pages** (Stats, Analytics, Documents, WebSources, Feedback, Acknowledgements): `p-4 sm:p-6 lg:p-8`; headers stack vertically on small screens (`flex-col sm:flex-row`); H1 `text-3xl sm:text-4xl`; tables wrapped in `overflow-x-auto` with sensible `min-w-*` to preserve readability while scrolling horizontally
+- **Stats / Analytics tiles**: `grid-cols-2` baseline so mobile shows 2×N instead of 1×N (more glanceable)
+- **Dialogs** (Upload, WebSource): `w-[calc(100%-2rem)] max-h-[90vh] overflow-y-auto` so they never overflow viewport
+- **LoginPage**: form padding `p-6 sm:p-8`; H2 `text-2xl sm:text-3xl`; renamed obscure `Authenticate` eyebrow → `Sign in`
+- **OnboardingPage**: padding tightened on mobile
+- Uses `h-[100dvh]` so iOS Safari url-bar resizing doesn't clip the layout
+
+### Verified
+- 375 × 800 (iPhone SE / 13 mini): chat drawer, EmptyState, suggestion grid, send button, admin grid all render without horizontal overflow
+- 768 × 1024 (iPad portrait): admin tables scroll horizontally, headers wrap, chat full-width with hamburger
+
+## Backlog
+
+### Each is its own session
+- **Multi-language detection + bilingual answers** (Claude can; needs UI + retrieval language tag)
+- **Photo/image input** via Claude vision (drum labels, PPE photos, hazard photos)
+- **Voice I/O** (Whisper STT + TTS) for hands-free field use
+- **Incident report integration** with Turnstile360 (pre-fill incident from chat context)
+- **SDS / chemical database integration** (PubChem API for live SDS lookup)
+- **Offline / PWA mode** for low-connectivity field workers
+- **Refactor ChatPage.jsx** (still 700+ lines — split MessageList / ChatInput / Sidebar / SourceCard)
 
 ## Next Tasks
 1. Multi-language support (largest competitive moat for international rollouts)
 2. Incident-report integration (when Turnstile API spec lands)
 3. Photo/image input (low effort, very high field impact — Claude vision already available)
-4. Acknowledgement workflow (legal/compliance requirement)

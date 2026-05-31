@@ -72,8 +72,8 @@ export default function OnboardingPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6" data-testid="onboarding-page">
-      <div className="w-full max-w-xl bg-white border border-slate-200 p-8 rounded-sm">
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4 sm:p-6" data-testid="onboarding-page">
+      <div className="w-full max-w-xl bg-white border border-slate-200 p-5 sm:p-8 rounded-sm">
         <div className="flex items-center gap-3 mb-6">
           <div className="w-9 h-9 bg-slate-900 flex items-center justify-center">
             <ShieldCheck size={20} weight="bold" className="text-white" />

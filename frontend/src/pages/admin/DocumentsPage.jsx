@@ -124,21 +124,21 @@ export default function DocumentsPage() {
   };
 
   return (
-    <div className="p-8 max-w-7xl" data-testid="documents-page">
-      <div className="flex items-end justify-between mb-6">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl" data-testid="documents-page">
+      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-6">
         <div>
           <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-slate-500 mb-2">Knowledge base</div>
-          <h1 className="text-4xl font-black tracking-tighter text-slate-900 mb-1">Documents</h1>
-          <p className="text-slate-600">Upload, classify and manage the EHS document corpus.</p>
+          <h1 className="text-3xl sm:text-4xl font-black tracking-tighter text-slate-900 mb-1">Documents</h1>
+          <p className="text-slate-600 text-sm sm:text-base">Upload, classify and manage the EHS document corpus.</p>
         </div>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
-            <Button data-testid="open-upload-dialog-btn" className="rounded-sm bg-slate-900 hover:bg-slate-800 text-white h-10">
+            <Button data-testid="open-upload-dialog-btn" className="rounded-sm bg-slate-900 hover:bg-slate-800 text-white h-10 self-start sm:self-auto">
               <UploadSimple size={16} weight="bold" />
               <span className="ml-2 font-semibold tracking-tight">UPLOAD DOCUMENT</span>
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-xl rounded-sm border-slate-300">
+          <DialogContent className="max-w-xl w-[calc(100%-2rem)] rounded-sm border-slate-300 max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="font-bold tracking-tight">Upload EHS Document</DialogTitle>
             </DialogHeader>
@@ -253,7 +253,8 @@ export default function DocumentsPage() {
       </div>
 
       <div className="border border-slate-300 bg-white overflow-hidden">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+        <table className="w-full text-sm min-w-[760px]">
           <thead className="bg-slate-100">
             <tr>
               <th className="text-left px-3 py-2 border-b border-slate-300 font-mono text-[10px] uppercase tracking-wider text-slate-600">Title</th>
@@ -323,6 +324,7 @@ export default function DocumentsPage() {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );

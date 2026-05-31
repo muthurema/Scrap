@@ -87,7 +87,7 @@ export default function LoginPage() {
       </div>
 
       {/* RIGHT — Form */}
-      <div className="flex-1 flex items-center justify-center p-8 bg-slate-50">
+      <div className="flex-1 flex items-center justify-center p-6 sm:p-8 bg-slate-50">
         <div className="w-full max-w-md">
           <div className="lg:hidden mb-8 flex items-center gap-3">
             <div className="w-9 h-9 border border-slate-300 flex items-center justify-center">
@@ -97,9 +97,9 @@ export default function LoginPage() {
           </div>
 
           <div className="font-mono text-xs uppercase tracking-[0.25em] text-slate-500 mb-2">
-            {mode === "login" ? "Authenticate" : "Create account"}
+            {mode === "login" ? "Sign in" : "Create account"}
           </div>
-          <h2 className="text-3xl font-black tracking-tighter text-slate-900 mb-2">
+          <h2 className="text-2xl sm:text-3xl font-black tracking-tighter text-slate-900 mb-2">
             {mode === "login" ? "Sign in to continue" : "Get started"}
           </h2>
           <p className="text-slate-600 text-sm mb-8">

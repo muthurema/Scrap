@@ -13,6 +13,7 @@ import {
   PaperPlaneTilt, Plus, ChatCircle, ShieldCheck, SignOut, Trash,
   Books, GearSix, FileText, Robot, User as UserIcon, Sparkle,
   Copy, ThumbsUp, ThumbsDown, Warning, CalendarBlank, CheckSquare, SealCheck,
+  List, X as XIcon,
 } from "@phosphor-icons/react";
 import MarkdownRenderer from "@/components/MarkdownRenderer";
 import { createTypewriter } from "@/lib/typewriter";
@@ -50,6 +51,7 @@ export default function ChatPage() {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [activeSources, setActiveSources] = useState([]);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const messagesEndRef = useRef(null);
 
   const loadSessions = async () => {
@@ -69,6 +71,7 @@ export default function ChatPage() {
 
   const loadSession = async (sid) => {
     setCurrentSessionId(sid);
+    setMobileSidebarOpen(false);
     try {
       const { data } = await api.get(`/chat/sessions/${sid}/messages`);
       setMessages(data);
@@ -84,6 +87,7 @@ export default function ChatPage() {
     setMessages([]);
     setActiveSources([]);
     setInput("");
+    setMobileSidebarOpen(false);
   };
 
   const send = async (content) => {
@@ -263,17 +267,42 @@ export default function ChatPage() {
   const isEmpty = messages.length === 0;
 
   return (
-    <div className="h-screen flex bg-slate-50 text-slate-900">
+    <div className="h-[100dvh] flex bg-slate-50 text-slate-900 overflow-hidden">
+      {/* MOBILE BACKDROP */}
+      {mobileSidebarOpen && (
+        <div
+          onClick={() => setMobileSidebarOpen(false)}
+          className="lg:hidden fixed inset-0 z-30 bg-slate-900/50 backdrop-blur-sm"
+          data-testid="mobile-sidebar-backdrop"
+          aria-hidden="true"
+        />
+      )}
+
       {/* SIDEBAR */}
-      <aside className="w-[260px] border-r border-slate-200 bg-white flex flex-col" data-testid="chat-sidebar">
-        <div className="p-4 border-b border-slate-200">
-          <div className="flex items-center gap-2 mb-1">
-            <div className="w-7 h-7 bg-slate-900 flex items-center justify-center">
-              <ShieldCheck size={16} weight="bold" className="text-white" />
+      <aside
+        className={`fixed lg:static inset-y-0 left-0 z-40 w-[280px] lg:w-[260px] border-r border-slate-200 bg-white flex flex-col transform transition-transform duration-200 lg:translate-x-0 ${
+          mobileSidebarOpen ? "translate-x-0" : "-translate-x-full"
+        }`}
+        data-testid="chat-sidebar"
+      >
+        <div className="p-4 border-b border-slate-200 flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 mb-1">
+              <div className="w-7 h-7 bg-slate-900 flex items-center justify-center shrink-0">
+                <ShieldCheck size={16} weight="bold" className="text-white" />
+              </div>
+              <div className="font-bold tracking-tight text-slate-900 truncate">EHS Intelligence</div>
             </div>
-            <div className="font-bold tracking-tight text-slate-900">EHS Intelligence</div>
+            <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-slate-500">Turnstile360 RAG</div>
           </div>
-          <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-slate-500">Turnstile360 RAG</div>
+          <button
+            onClick={() => setMobileSidebarOpen(false)}
+            data-testid="close-sidebar-btn"
+            className="lg:hidden p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors"
+            aria-label="Close menu"
+          >
+            <XIcon size={18} weight="bold" />
+          </button>
         </div>
 
         <div className="p-3">
@@ -361,17 +390,26 @@ export default function ChatPage() {
 
       {/* MAIN */}
       <main className="flex-1 flex flex-col min-w-0">
-        <header className="h-14 border-b border-slate-200 bg-white px-6 flex items-center justify-between" data-testid="chat-header">
-          <div className="flex items-center gap-3">
-            <div className="font-mono text-[10px] uppercase tracking-[0.25em] text-slate-500">Session</div>
-            <div className="text-sm font-medium text-slate-800 truncate max-w-md">
+        <header className="h-14 border-b border-slate-200 bg-white px-4 sm:px-6 flex items-center justify-between gap-3" data-testid="chat-header">
+          <div className="flex items-center gap-3 min-w-0">
+            <button
+              onClick={() => setMobileSidebarOpen(true)}
+              data-testid="open-sidebar-btn"
+              className="lg:hidden -ml-1 p-1.5 text-slate-700 hover:bg-slate-100 transition-colors"
+              aria-label="Open menu"
+            >
+              <List size={20} weight="bold" />
+            </button>
+            <div className="hidden sm:block font-mono text-[10px] uppercase tracking-[0.25em] text-slate-500 shrink-0">Session</div>
+            <div className="text-sm font-medium text-slate-800 truncate">
               {sessions.find((s) => s.id === currentSessionId)?.title || "New conversation"}
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <Badge className="rounded-sm bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-50 font-mono text-[10px] uppercase tracking-wider" data-testid="online-badge">
               <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full mr-1.5 inline-block"></span>
-              Claude Sonnet 4.6
+              <span className="hidden sm:inline">Claude Sonnet 4.6</span>
+              <span className="sm:hidden">Online</span>
             </Badge>
           </div>
         </header>
@@ -380,7 +418,7 @@ export default function ChatPage() {
           {/* CONVERSATION */}
           <div className="flex-1 flex flex-col min-w-0">
             <ScrollArea className="flex-1">
-              <div className="max-w-3xl mx-auto px-6 py-8">
+              <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
                 {isEmpty ? (
                   <EmptyState onPick={(q) => send(q)} />
                 ) : (
@@ -412,7 +450,7 @@ export default function ChatPage() {
             </ScrollArea>
 
             <div className="border-t border-slate-200 bg-white">
-              <div className="max-w-3xl mx-auto p-4">
+              <div className="max-w-3xl mx-auto p-3 sm:p-4">
                 <form
                   onSubmit={(e) => { e.preventDefault(); send(); }}
                   className="relative border border-slate-300 focus-within:border-blue-600 focus-within:ring-2 focus-within:ring-blue-100 transition-all rounded-sm bg-white"
@@ -427,7 +465,7 @@ export default function ChatPage() {
                     placeholder="Ask about confined space, LOTO, ISO 45001, HAZOP, incident RCA..."
                     rows={2}
                     data-testid="chat-input"
-                    className="resize-none border-0 focus-visible:ring-0 rounded-sm bg-transparent text-slate-900 placeholder:text-slate-400 px-4 py-3 pr-14 max-h-40"
+                    className="resize-none border-0 focus-visible:ring-0 rounded-sm bg-transparent text-slate-900 placeholder:text-slate-400 px-3 sm:px-4 py-3 pr-14 max-h-40 text-base"
                   />
                   <Button
                     type="submit"
@@ -438,8 +476,9 @@ export default function ChatPage() {
                     <PaperPlaneTilt size={16} weight="fill" />
                   </Button>
                 </form>
-                <div className="mt-2 font-mono text-[10px] uppercase tracking-[0.2em] text-slate-400 text-center">
-                  Enter to send · Shift+Enter for newline · <span className="text-amber-700">AI-generated — not a substitute for professional EHS advice. Verify before acting.</span>
+                <div className="mt-2 font-mono text-[10px] uppercase tracking-[0.2em] text-slate-400 text-center leading-relaxed">
+                  <span className="hidden sm:inline">Enter to send · Shift+Enter for newline · </span>
+                  <span className="text-amber-700">AI-generated — verify before acting.</span>
                 </div>
               </div>
             </div>
@@ -472,12 +511,12 @@ export default function ChatPage() {
 
 function EmptyState({ onPick }) {
   return (
-    <div className="py-12" data-testid="empty-state">
+    <div className="py-8 sm:py-12" data-testid="empty-state">
       <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-slate-500 mb-3">AI co-pilot</div>
-      <h1 className="text-4xl font-black tracking-tighter text-slate-900 mb-3 leading-none">
+      <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tighter text-slate-900 mb-3 leading-[1.05]">
         What EHS question is on your mind?
       </h1>
-      <p className="text-slate-600 text-base mb-10 max-w-2xl">
+      <p className="text-slate-600 text-sm sm:text-base mb-8 sm:mb-10 max-w-2xl">
         Ask anything about your safety procedures, permits, HAZOPs, incidents, OSHA standards, ISO requirements or chemical SDS data. I'll search your knowledge base and cite the source.
       </p>
 
@@ -488,7 +527,7 @@ function EmptyState({ onPick }) {
             key={i}
             onClick={() => onPick(q)}
             data-testid={`suggestion-${i}`}
-            className="text-left bg-white p-4 hover:bg-blue-50 hover:text-blue-900 transition-colors group flex items-start gap-3"
+            className="text-left bg-white p-3 sm:p-4 hover:bg-blue-50 hover:text-blue-900 transition-colors group flex items-start gap-3"
           >
             <Sparkle size={14} weight="bold" className="text-blue-600 mt-1 shrink-0" />
             <span className="text-sm font-medium leading-snug">{q}</span>
@@ -557,7 +596,7 @@ function MessageRow({ msg, onCopy, onFeedback, onFollowup, onAcknowledge }) {
           </div>
         )}
         {!msg._streaming && msg.content && (
-          <div className="mt-3 flex items-center gap-1" data-testid="message-actions">
+          <div className="mt-3 flex items-center flex-wrap gap-1" data-testid="message-actions">
             <button
               onClick={() => onCopy?.(msg.content)}
               data-testid={`copy-msg-${msg.message_id}`}
