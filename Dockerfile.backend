@@ -1,0 +1,43 @@
+# Backend-only image for split Railway deploy.
+# Frontend lives in its own service (see frontend/Dockerfile).
+FROM python:3.11-slim
+
+# System libs needed by fastembed / qdrant / pytesseract / pdf parsing
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    tesseract-ocr \
+    poppler-utils \
+    libmagic1 \
+    curl \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY backend/requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir --upgrade pip \
+ && pip install --no-cache-dir -r /tmp/requirements.txt
+
+# Pre-download embedding models so cold start doesn't fetch them
+RUN python -c "from fastembed import TextEmbedding, SparseTextEmbedding; \
+    TextEmbedding(model_name='BAAI/bge-small-en-v1.5'); \
+    SparseTextEmbedding(model_name='Qdrant/bm25')"
+RUN python -c "from huggingface_hub import snapshot_download; \
+    snapshot_download('Xenova/ms-marco-MiniLM-L-6-v2')" || true
+
+COPY backend/ /app/backend/
+
+# Volume-friendly persistence
+RUN mkdir -p /data/uploads /data/qdrant /data/hf_cache \
+ && ln -sf /data/uploads /app/backend/uploads \
+ && ln -sf /data/qdrant  /app/backend/qdrant_data
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    HF_HOME=/data/hf_cache \
+    UPLOAD_DIR=/app/backend/uploads \
+    QDRANT_PATH=/app/backend/qdrant_data \
+    PORT=8001
+
+EXPOSE 8001
+WORKDIR /app/backend
+CMD ["sh", "-c", "uvicorn server:app --host 0.0.0.0 --port ${PORT:-8001} --workers 1 --timeout-keep-alive 75"]
