@@ -131,7 +131,7 @@ export default function ChatPage() {
     setAttachments([]);
 
     const token = authStore.getToken();
-    const url = `${process.env.REACT_APP_BACKEND_URL}/api/chat/stream`;
+    const url = `${process.env.REACT_APP_BACKEND_URL || ""}/api/chat/stream`;
     let buffer = "";
 
     const typewriter = createTypewriter({

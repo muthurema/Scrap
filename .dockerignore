@@ -1,0 +1,36 @@
+# Don't ship dev clutter into the Railway image
+.git
+.gitignore
+.env
+.env.*
+*.env
+!backend/.env.example
+
+# Frontend
+frontend/node_modules
+frontend/build
+frontend/.cache
+frontend/coverage
+
+# Backend
+backend/__pycache__
+backend/**/__pycache__
+backend/*.pyc
+backend/qdrant_data
+backend/uploads
+backend/.pytest_cache
+
+# Docs / scratch
+test_reports
+memory
+*.md
+!Dockerfile
+!railway.json
+
+# OS / editor
+.DS_Store
+.idea
+.vscode
+
+# Emergent build metadata
+.emergent

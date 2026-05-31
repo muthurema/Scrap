@@ -1,0 +1,176 @@
+# Railway Deployment Guide — Turnstile360 RAG
+
+This guide deploys the full app (React frontend + FastAPI backend) as a **single Railway service** using the provided `Dockerfile`. MongoDB is added as a separate Railway service. A persistent **volume** keeps Qdrant + uploaded PDFs + the HuggingFace model cache alive across redeploys.
+
+Estimated time: **15 minutes**.
+
+---
+
+## 0. Prerequisites
+
+- A Railway account (https://railway.com — pay-as-you-go, ~$5–10/mo for this stack)
+- Your code on GitHub (Emergent's "Save to GitHub" button works perfectly)
+- Your **Emergent Universal Key** (from Profile → Universal Key) — used for Claude calls
+
+---
+
+## 1. Push the latest code to GitHub
+
+In the Emergent chat input, click **"Save to GitHub"** and pick a repo (e.g. `turnstile360-rag`). The Dockerfile, `.dockerignore`, and `railway.json` are already in the repo root.
+
+---
+
+## 2. Create the Railway project
+
+1. Go to https://railway.com/new → **"Deploy from GitHub repo"** → pick your repo
+2. Railway will detect the `Dockerfile` automatically
+3. **Do NOT click Deploy yet** — we need to add Mongo + a volume + env vars first
+
+---
+
+## 3. Add MongoDB
+
+Two options:
+
+### Option A — Railway's MongoDB plugin (simplest)
+1. In your Railway project canvas → **"+ New"** → **Database** → **MongoDB**
+2. Railway provisions a Mongo instance and auto-creates a `MONGO_URL` variable inside the project
+3. In your **backend service** → **Variables** tab → **"+ New Variable Reference"** → pick `MongoDB.MONGO_URL`
+4. Add another variable: `DB_NAME=ehs_rag`
+
+### Option B — MongoDB Atlas (free tier, more portable)
+1. Create a free M0 cluster at https://cloud.mongodb.com
+2. Network Access → "Allow access from anywhere" (0.0.0.0/0)
+3. Database Access → create a user with `readWrite` on your DB
+4. Get the connection string: `mongodb+srv://<user>:<pwd>@cluster.mongodb.net`
+5. In the Railway backend service → Variables: `MONGO_URL=mongodb+srv://...` and `DB_NAME=ehs_rag`
+
+---
+
+## 4. Attach a persistent volume
+
+Without this, every redeploy wipes Qdrant + uploaded PDFs + the model cache.
+
+1. Click your backend service → **Volumes** tab → **"+ New Volume"**
+2. **Mount path**: `/data`
+3. Size: **5 GB** is plenty (Qdrant ~500 MB, uploads up to ~3 GB, HF cache ~150 MB)
+
+The Dockerfile already symlinks `/app/backend/uploads`, `/app/backend/qdrant_data`, and the HF cache to `/data/*`, so this just works.
+
+---
+
+## 5. Set environment variables
+
+In the backend service → **Variables** tab, add each line:
+
+```
+DB_NAME=ehs_rag
+SECRET_KEY=<generate a 64-char random string, e.g. `openssl rand -hex 32`>
+JWT_ALGORITHM=HS256
+ACCESS_TOKEN_EXPIRE_MINUTES=1440
+EMERGENT_LLM_KEY=sk-emergent-XXXXXXXXXX
+CLAUDE_MODEL=claude-sonnet-4-6
+EMBEDDING_MODEL=BAAI/bge-small-en-v1.5
+EMBEDDING_DIMENSIONS=384
+MAX_UPLOAD_SIZE_MB=300
+CORS_ORIGINS=*
+ADMIN_EMAIL=admin@yourcompany.com
+ADMIN_PASSWORD=<a strong password — you'll log in with this first>
+ADMIN_FULL_NAME=Platform Owner
+```
+
+> `MONGO_URL` was already set in step 3. `PORT` is auto-injected by Railway — don't set it.
+
+---
+
+## 6. Configure resources
+
+Railway service → **Settings** → **Resources**:
+
+- **Memory**: **2 GB minimum** (4 GB recommended for comfort)
+  - Why: fastembed dense + BM25 sparse + cross-encoder reranker + Qdrant + Python ~1.5 GB baseline. The OOM you saw on Emergent's deploy was the 1 GB default.
+- **CPU**: 1 vCPU is fine; bumps to 2 if ingestion of textbook-sized PDFs feels slow
+
+---
+
+## 7. Deploy
+
+1. Click **Deploy** on the backend service
+2. Build takes **5–8 minutes** the first time (Docker pulls Python + downloads embedding models in the image so subsequent cold-starts are instant)
+3. Watch the **Deploy Logs** — you should see:
+   ```
+   Embedding models pre-loaded (dense + BM25 + cross-encoder)
+   Application startup complete.
+   Uvicorn running on http://0.0.0.0:<PORT>
+   ```
+4. Once live, visit `https://<service>.up.railway.app/api/health` — should return `{"status":"healthy","models_ready":true,...}`
+
+---
+
+## 8. Seed the admin user + base corpus
+
+Railway service → **Settings** → **Deploy** → open a shell, or use Railway CLI:
+
+```bash
+railway shell
+cd backend && python seed.py
+```
+
+Output:
+```
+=== EHS RAG Seed ===
+Created admin user: admin@yourcompany.com / <your-password>
+  Created: 7, Skipped: 0, Failed: 0, Total chunks: 87
+=== Seed complete ===
+```
+
+Or you can simply log in as the admin and hit **Admin → Stats → "Re-seed Corpus"** in the UI — it does the same thing without shelling in.
+
+---
+
+## 9. Custom domain (optional)
+
+1. Railway service → **Settings** → **Networking** → **Generate Domain** (gives you `<service>.up.railway.app`)
+2. Or **"+ Custom Domain"** → enter `rag.yourcompany.com`
+3. Railway shows a CNAME target → add it in your DNS provider (Cloudflare, Namecheap, etc.)
+4. Wait 1–5 minutes for SSL provisioning
+
+---
+
+## 10. Verify
+
+1. Open `https://<your-domain>` → React app loads with Turnstile360 branding
+2. Log in with the seeded admin credentials
+3. Admin → Stats → confirm corpus is healthy (green card, ~85+ chunks)
+4. Upload a 100 MB textbook PDF as a smoke test — should return 201 in a few seconds (no more 413/520/502)
+5. Send a chat query — should stream with citations
+
+---
+
+## Updating / redeploying
+
+Just push to GitHub. Railway auto-builds and deploys on every push to `main`. Your data on `/data` survives.
+
+---
+
+## Troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| Build fails on `yarn install` | Network blip | Retry deploy |
+| Container OOM-killed | < 2 GB RAM allocated | Bump memory in Settings → Resources |
+| `/api/health` returns 503 with `models_ready: false` | HF download failed | Check egress; the retry logic gives up after 3 attempts, redeploy |
+| `MONGO_URL` not set error on startup | Forgot step 3 | Add the variable, redeploy |
+| Uploads return 413 | A reverse-proxy in front of Railway (Cloudflare?) caps body size | Disable Cloudflare proxy (gray cloud) OR raise the limit in Cloudflare → Network → Max Upload Size |
+| Login returns "Invalid email or password" on first run | Seed didn't run | Run `python seed.py` via Railway shell |
+
+---
+
+## Cost estimate (Railway pricing as of Feb 2026)
+
+- **Hobby plan**: $5/mo base
+- **Backend service**: ~$10/mo (2 GB RAM, 1 vCPU, always-on)
+- **Mongo plugin**: ~$5/mo (or free with MongoDB Atlas M0)
+- **Volume (5 GB)**: ~$1.25/mo
+
+**Total: ~$15–20/mo** for a fully-isolated, persistent-data, autoscaling-ready production deployment.

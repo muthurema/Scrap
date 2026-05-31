@@ -135,3 +135,29 @@ api.include_router(ack_router)
 api.include_router(team_router)
 
 app.include_router(api)
+
+
+# ── Static frontend (single-service deploy) ───────────────────────────────────
+# When the React build exists at /app/frontend_build (e.g. inside the Railway
+# Docker image), serve it from the same origin so REACT_APP_BACKEND_URL can be
+# empty. /api/* routes already take precedence above.
+import os
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+
+_FRONTEND_BUILD = Path(os.environ.get("FRONTEND_BUILD_DIR", "/app/frontend_build"))
+if _FRONTEND_BUILD.is_dir() and (_FRONTEND_BUILD / "index.html").exists():
+    # Cache-bust hashed assets, but keep index.html short-cache so deploys roll out fast
+    app.mount("/static", StaticFiles(directory=_FRONTEND_BUILD / "static"), name="static")
+
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        # /api/* is already handled by the router above; this only fires for unmatched paths
+        candidate = _FRONTEND_BUILD / full_path
+        if full_path and candidate.exists() and candidate.is_file():
+            return FileResponse(candidate)
+        return FileResponse(_FRONTEND_BUILD / "index.html")
+
+    logger.info(f"Serving React build from {_FRONTEND_BUILD}")
+else:
+    logger.info(f"No React build at {_FRONTEND_BUILD}; backend-only mode")

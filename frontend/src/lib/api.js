@@ -1,7 +1,10 @@
 import axios from "axios";
 import { authStore } from "@/lib/auth-store";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+// In a single-service Railway deploy the React app is served by FastAPI at the
+// same origin, so REACT_APP_BACKEND_URL can be empty/undefined and axios will
+// hit the same host. On Emergent's split deploy it's set to the backend URL.
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "";
 export const API = `${BACKEND_URL}/api`;
 
 export const api = axios.create({
