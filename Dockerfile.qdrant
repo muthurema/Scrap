@@ -4,20 +4,26 @@ FROM qdrant/qdrant:v1.13.3
 EXPOSE 6333
 EXPOSE 6334
 
-# All knobs are passed via env vars (Railway service Variables).
+# All knobs passed via env vars (Railway service Variables).
 # Defaults chosen to minimise RAM on the 2-4GB Railway tier:
 #   - ON_DISK_PAYLOAD=true → payload (chunk text + metadata) is mmap'd
 #     from disk instead of held entirely in RAM
 #   - MEMMAP_THRESHOLD_KB=20480 → collections above ~20MB switch to mmap
 #     for the dense vectors too
 #   - DEFAULT_SEGMENT_NUMBER=2 → fewer in-flight segments = lower RSS
+#   - STORAGE_PATH=/qdrant/storage → where the index lives; attach the
+#     Railway Volume at this exact mount path in the dashboard
 ENV QDRANT__SERVICE__HTTP_PORT=6333 \
     QDRANT__SERVICE__GRPC_PORT=6334 \
     QDRANT__LOG_LEVEL=INFO \
     QDRANT__STORAGE__ON_DISK_PAYLOAD=true \
     QDRANT__STORAGE__MEMMAP_THRESHOLD_KB=20480 \
-    QDRANT__STORAGE__OPTIMIZERS__DEFAULT_SEGMENT_NUMBER=2
+    QDRANT__STORAGE__OPTIMIZERS__DEFAULT_SEGMENT_NUMBER=2 \
+    QDRANT__STORAGE__STORAGE_PATH=/qdrant/storage
 
-# Persistent volume — mount Railway volume at /qdrant/storage so the
-# vector index survives redeploys.
-VOLUME ["/qdrant/storage"]
+# IMPORTANT: do NOT add a Docker `VOLUME` instruction here. Railway
+# rejects images that declare VOLUMEs at build time with:
+#   "dockerfile invalid: docker VOLUME ... is not supported, use Railway Volumes"
+# Instead, attach a Railway Volume in the dashboard:
+#   Service → Volumes → Add Volume → Mount path: /qdrant/storage
+# The STORAGE_PATH env var above tells Qdrant to use that mount point.

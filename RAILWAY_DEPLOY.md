@@ -185,19 +185,24 @@ By default Qdrant runs **embedded in the backend pod** (file-mode SQLite + HNSW)
 1. **Create a new Railway service** from the same GitHub repo. Set:
    - **Root Directory:** `/` (repo root)
    - **Dockerfile Path:** `Dockerfile.qdrant`
-   - **Volume Mount:** `/qdrant/storage` (attach a Railway Volume here — 10GB to start)
 
-2. **Add an internal hostname** in Railway's networking tab (e.g. `qdrant.railway.internal`). Note the port `6333`.
+2. **Attach a Railway Volume** to the Qdrant service:
+   - Service → **Volumes → Add Volume**
+   - **Mount path: `/qdrant/storage`** (must match `QDRANT__STORAGE__STORAGE_PATH` baked into the Dockerfile)
+   - Size: 10 GB to start
+   - ⚠️ **Do not add a `VOLUME` instruction to the Dockerfile** — Railway rejects images that declare Docker VOLUMEs at build time. The Dockerfile in this repo intentionally has none; the volume is attached via the dashboard.
 
-3. **On your backend service**, add the env var:
+3. **Expose the service internally.** Railway → networking → note the internal hostname (e.g. `qdrant.railway.internal`) on port `6333`.
+
+4. **On your backend service**, add the env var:
    ```
    QDRANT_URL=http://qdrant.railway.internal:6333
    ```
    (Optionally `QDRANT_API_KEY=<your-secret>` if you set `QDRANT__SERVICE__API_KEY` on the Qdrant service.)
 
-4. **Redeploy the backend.** On boot you'll see `Connecting to external Qdrant at http://qdrant.railway.internal:6333` in the logs.
+5. **Redeploy the backend.** On boot you'll see `Connecting to external Qdrant at http://qdrant.railway.internal:6333` in the logs.
 
-5. **Re-seed the base corpus** (your existing local Qdrant data won't auto-migrate) — go to **Admin → Stats → Force Re-seed Corpus**. Or write a one-time migration script using `qdrant-client` to scroll the old collection and upsert into the new server.
+6. **Re-seed the base corpus** (your existing local Qdrant data won't auto-migrate) — go to **Admin → Stats → Force Re-seed Corpus**. Or write a one-time migration script using `qdrant-client` to scroll the old collection and upsert into the new server.
 
 ### Expected savings
 - Backend pod RAM drops by **300-800 MB** typically (depending on corpus size)

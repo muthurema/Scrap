@@ -250,6 +250,25 @@ EHS (Environment, Health & Safety) RAG chatbot for Turnstile360 — adapted from
 - Diagnose production hang at rag.turnstile360.com (use Re-seed Corpus button after redeploy)
 - Cleanup `// authenticate` placeholder comments across frontend/backend (P2)
 
+## v3.13 — Dockerfile.qdrant: remove VOLUME instruction (Railway-incompatible) (Feb 2026)
+
+### Problem
+User shared a fix proposal: Railway's build system rejects Docker images that declare `VOLUME` instructions with:
+> dockerfile invalid: docker VOLUME at Line 23 is not supported, use Railway Volumes
+
+The Dockerfile.qdrant added in v3.12 had `VOLUME ["/qdrant/storage"]` on the last line → all deploys to the new Qdrant service failed at build time.
+
+### Fix
+- Removed the `VOLUME ["/qdrant/storage"]` instruction from `/app/Dockerfile.qdrant`
+- Added `QDRANT__STORAGE__STORAGE_PATH=/qdrant/storage` env var so Qdrant uses that exact path for its on-disk index — matches the Railway Volume mount path the user attaches in the dashboard
+- Added a prominent inline comment warning future contributors not to re-add a `VOLUME` instruction
+- Updated `RAILWAY_DEPLOY.md` "Optional: External Qdrant service" walkthrough: split the volume attachment into its own numbered step with the exact `/qdrant/storage` mount path and a "do NOT add a VOLUME instruction" warning
+
+### Verified
+- `grep -i "^VOLUME" /app/Dockerfile.qdrant` → returns nothing
+- `QDRANT__STORAGE__STORAGE_PATH=/qdrant/storage` present
+- Iter5+iter7 regression: unchanged, still 27/27
+
 ## v3.12 — External Qdrant service support (Feb 2026, P0 OOM fix)
 
 User shared a `qdrant_fix.zip` with 4 proposed changes. Audited each:
