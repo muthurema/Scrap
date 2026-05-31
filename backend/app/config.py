@@ -103,11 +103,21 @@ def detect_doc_type(text: str) -> DocumentType:
 
 class Settings:
     def __init__(self):
-        self.mongo_url = os.environ["MONGO_URL"]
-        self.db_name = os.environ["DB_NAME"]
+        # Fail-fast with a clear error when a required env var is missing
+        def _required(name: str) -> str:
+            v = os.environ.get(name)
+            if not v:
+                raise RuntimeError(
+                    f"Required env var '{name}' is not set. "
+                    f"Set it in your Railway service Variables tab and redeploy."
+                )
+            return v
+
+        self.mongo_url = _required("MONGO_URL")
+        self.db_name = _required("DB_NAME")
+        self.secret_key = _required("SECRET_KEY")
         self.cors_origins = os.environ.get("CORS_ORIGINS", "*").split(",")
         self.emergent_llm_key = os.environ.get("EMERGENT_LLM_KEY", "")
-        self.secret_key = os.environ["SECRET_KEY"]
         self.jwt_algorithm = os.environ.get("JWT_ALGORITHM", "HS256")
         self.access_token_expire_minutes = int(os.environ.get("ACCESS_TOKEN_EXPIRE_MINUTES", "1440"))
         self.upload_dir = os.environ.get("UPLOAD_DIR", "/app/backend/uploads")

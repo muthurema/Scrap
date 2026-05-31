@@ -106,20 +106,36 @@ async def root():
 
 @api.get("/health")
 async def health():
-    """Liveness + readiness. Returns 503 until embedding models finish loading."""
-    from fastapi import Response
+    """
+    Liveness probe — always returns 200 if the FastAPI process is up. The
+    `models_ready` flag lets clients distinguish "alive but warming" from
+    "fully ready". Returning 200 here (instead of 503) means Railway / k8s
+    don't kill the pod while embedding models finish loading on first boot.
+    """
     vs = get_vector_store()
-    qdrant_status = await vs.health()
-    body = {
+    try:
+        qdrant_status = await vs.health()
+    except Exception as e:
+        qdrant_status = f"error: {e}"
+    return {
         "status": "healthy" if _models_ready["value"] else "warming",
         "qdrant": qdrant_status,
         "model": settings.claude_model,
         "models_ready": _models_ready["value"],
         "models_error": _models_ready["error"],
     }
-    if not _models_ready["value"]:
-        return Response(content=__import__("json").dumps(body), status_code=503, media_type="application/json")
-    return body
+
+
+@api.get("/health/ready")
+async def health_ready():
+    """Strict readiness — 503 until embedding models loaded. Use this for k8s readiness probes."""
+    from fastapi import Response
+    if _models_ready["value"]:
+        return {"ready": True}
+    return Response(
+        content=__import__("json").dumps({"ready": False, "error": _models_ready["error"]}),
+        status_code=503, media_type="application/json",
+    )
 
 
 api.include_router(auth_router)
