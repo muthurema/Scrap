@@ -430,9 +430,43 @@ function StatusBadge({ doc }) {
       </span>
     );
   }
+
+  // PROCESSING — show elapsed time and flag stuck uploads
+  const uploaded = doc.created_at ? new Date(doc.created_at).getTime() : Date.now();
+  const elapsedSec = Math.max(0, Math.floor((Date.now() - uploaded) / 1000));
+  const fmt = elapsedSec < 60
+    ? `${elapsedSec}s`
+    : elapsedSec < 3600
+      ? `${Math.floor(elapsedSec / 60)}m${elapsedSec % 60 ? ` ${elapsedSec % 60}s` : ""}`
+      : `${Math.floor(elapsedSec / 3600)}h ${Math.floor((elapsedSec % 3600) / 60)}m`;
+
+  // Heuristic: small files (<5 MB) should process in <2 min, large ones (PDF textbooks)
+  // can take 5-15 min. Anything past 15 min is almost certainly stuck.
+  const sizeMB = (doc.file_size_bytes || 0) / (1024 * 1024);
+  const expectedSec = Math.max(60, Math.min(15 * 60, sizeMB * 10)); // 10s per MB, clamped
+  const isStuck = elapsedSec > Math.max(15 * 60, expectedSec * 2);
+  const isSlow = !isStuck && elapsedSec > expectedSec;
+
+  if (isStuck) {
+    return (
+      <span
+        className="inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-wider px-1.5 py-0.5 bg-rose-50 border border-rose-200 text-rose-700"
+        title={`No progress for ${fmt}. The ingestion worker may have crashed or the file is malformed. Try Reprocess.`}
+      >
+        <Warning size={11} weight="bold" /> STUCK · {fmt}
+      </span>
+    );
+  }
   return (
-    <span className="inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-wider px-1.5 py-0.5 bg-amber-50 border border-amber-200 text-amber-700">
-      <Hourglass size={11} weight="bold" /> PROCESSING
+    <span
+      className={`inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-wider px-1.5 py-0.5 ${
+        isSlow
+          ? "bg-amber-100 border border-amber-300 text-amber-900"
+          : "bg-amber-50 border border-amber-200 text-amber-700"
+      }`}
+      title={`Processing for ${fmt}. ${sizeMB.toFixed(1)}MB file — typical: ${Math.round(expectedSec)}s.`}
+    >
+      <Hourglass size={11} weight="bold" className={isSlow ? "" : "animate-pulse"} /> PROCESSING · {fmt}
     </span>
   );
 }
