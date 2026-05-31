@@ -184,33 +184,39 @@ class IngestionService:
         source: DocumentSource,
         extra_metadata: Optional[dict] = None,
     ) -> tuple[int, list[str]]:
-        raw_text = parse_document(file_bytes, file_ext)
-        if not raw_text.strip():
-            raise ValueError("Document appears empty or unreadable.")
+        # Parsing + OCR + chunking are CPU-bound and synchronous (PyMuPDF,
+        # Tesseract, fastembed). Running them directly on the asyncio event
+        # loop freezes ALL other endpoints (login, /api/health, chat). We
+        # offload to a worker thread so the loop stays responsive.
+        import asyncio
 
-        injection_findings = scan_document_for_injection(raw_text)
+        def _sync_parse_and_chunk():
+            raw_text = parse_document(file_bytes, file_ext)
+            if not raw_text.strip():
+                raise ValueError("Document appears empty or unreadable.")
+            findings = scan_document_for_injection(raw_text)
+            local_doc_type = doc_type
+            if local_doc_type is None or local_doc_type == DocumentType.GENERAL:
+                detected = detect_doc_type((title + " " + raw_text[:2000]))
+                if detected != DocumentType.GENERAL:
+                    local_doc_type = detected
+            if local_doc_type is None:
+                local_doc_type = DocumentType.GENERAL
+            local_chunks = chunk_text(
+                text=raw_text, doc_type=local_doc_type, doc_id=doc_id,
+                title=title, source=source, extra_metadata=extra_metadata,
+            )
+            return raw_text, findings, local_doc_type, local_chunks
+
+        raw_text, injection_findings, resolved_doc_type, chunks = await asyncio.to_thread(_sync_parse_and_chunk)
+
         if injection_findings:
             logger.warning(
                 f"Doc {doc_id} ({title}): {len(injection_findings)} possible injection patterns: "
                 f"{injection_findings[:2]}"
             )
-
-        if doc_type is None or doc_type == DocumentType.GENERAL:
-            detected = detect_doc_type((title + " " + raw_text[:2000]))
-            if detected != DocumentType.GENERAL:
-                doc_type = detected
-                logger.info(f"Auto-detected doc type: {doc_type.value}")
-        if doc_type is None:
-            doc_type = DocumentType.GENERAL
-
-        chunks = chunk_text(
-            text=raw_text,
-            doc_type=doc_type,
-            doc_id=doc_id,
-            title=title,
-            source=source,
-            extra_metadata=extra_metadata,
-        )
+        if resolved_doc_type != (doc_type or DocumentType.GENERAL):
+            logger.info(f"Auto-detected doc type: {resolved_doc_type.value}")
         if not chunks:
             raise ValueError("No usable chunks extracted from document.")
 
