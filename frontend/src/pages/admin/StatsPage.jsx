@@ -1,37 +1,64 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 import {
   ChartBar, FileText, Database, Globe, ChatCircle, Users, Warning, CheckCircle,
-  ClockCounterClockwise, ShieldCheck,
+  ClockCounterClockwise, ShieldCheck, ArrowsClockwise,
 } from "@phosphor-icons/react";
 
 export default function StatsPage() {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [audit, setAudit] = useState([]);
+  const [reseedBusy, setReseedBusy] = useState(false);
+
+  const load = async () => {
+    try {
+      const [statsR, auditR] = await Promise.all([
+        api.get("/admin/stats"),
+        api.get("/audit/?limit=15").catch(() => ({ data: { items: [] } })),
+      ]);
+      setStats(statsR.data);
+      setAudit(auditR.data.items || []);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     let mounted = true;
-    const load = async () => {
-      try {
-        const [statsR, auditR] = await Promise.all([
-          api.get("/admin/stats"),
-          api.get("/audit/?limit=15").catch(() => ({ data: { items: [] } })),
-        ]);
-        if (mounted) {
-          setStats(statsR.data);
-          setAudit(auditR.data.items || []);
-        }
-      } catch (e) {
-        console.error(e);
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    };
-    load();
-    const t = setInterval(load, 10_000);
+    const tick = async () => { if (mounted) await load(); };
+    tick();
+    const t = setInterval(tick, 10_000);
     return () => { mounted = false; clearInterval(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const reseed = async (force) => {
+    const label = force ? "FORCE re-seed" : "re-seed";
+    const msg = force
+      ? "FORCE re-seed will DELETE all existing base-corpus documents and re-ingest from scratch. Continue?"
+      : "Re-seed the base EHS corpus? Existing titles will be skipped (safe to run anytime).";
+    if (!confirm(msg)) return;
+    setReseedBusy(true);
+    const t = toast.loading(`${label} in progress — embedding chunks…`);
+    try {
+      const { data } = await api.post(`/admin/reseed-corpus?force=${force}`);
+      toast.dismiss(t);
+      const detail = `${data.created} created · ${data.skipped} skipped · ${data.failed} failed · ${data.total_chunks} chunks`;
+      if (data.failed > 0) toast.warning(detail);
+      else toast.success(detail);
+      load();
+    } catch (e) {
+      toast.dismiss(t);
+      toast.error(e?.response?.data?.detail || "Re-seed failed");
+    } finally {
+      setReseedBusy(false);
+    }
+  };
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-7xl" data-testid="stats-page">
@@ -65,7 +92,8 @@ export default function StatsPage() {
           </div>
 
           <Section title="Knowledge Source Priority">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-px bg-slate-200 border border-slate-300">
+            <CorpusHealth stats={stats} onReseed={reseed} busy={reseedBusy} />
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-px bg-slate-200 border border-slate-300 mt-4">
               {[
                 { label: "Company Uploads", boost: "1.5×", color: "bg-blue-600", desc: "Documents uploaded by superadmins" },
                 { label: "Turnstile DMS Sync", boost: "1.3×", color: "bg-indigo-600", desc: "Synced from Turnstile360 (stub)" },
@@ -178,7 +206,69 @@ const ACTION_LABELS = {
   scrape_web_source: "Scrape",
   acknowledge_change: "Ack change",
   delete_chat_session: "Delete chat",
+  delete_all_chat_sessions: "Clear chats",
+  delete_chat_message: "Delete msg",
+  reseed_base_corpus: "Re-seed",
 };
+
+function CorpusHealth({ stats, onReseed, busy }) {
+  const chunks = stats?.total_chunks_embedded ?? 0;
+  const baseDocs = stats?.base_corpus_count ?? 0;
+  const empty = chunks === 0;
+  return (
+    <div
+      className={`border p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-4 ${
+        empty
+          ? "bg-amber-50 border-amber-300"
+          : "bg-white border-slate-300"
+      }`}
+      data-testid="corpus-health"
+    >
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 mb-1">
+          {empty ? (
+            <Warning size={16} weight="bold" className="text-amber-700" />
+          ) : (
+            <CheckCircle size={16} weight="bold" className="text-emerald-700" />
+          )}
+          <div className="font-bold tracking-tight text-slate-900">
+            {empty ? "Corpus is empty — chat will not return any sources" : "Knowledge base healthy"}
+          </div>
+        </div>
+        <div className="text-xs text-slate-600 leading-relaxed">
+          {empty
+            ? "Run \"Re-seed base corpus\" to populate the OSHA, ISO 45001, LOTO, JSA, GHS, hot work and RCA reference documents. Required on first install or after a fresh deployment."
+            : <>
+                <span className="font-mono">{chunks}</span> embedded chunks across <span className="font-mono">{baseDocs}</span> base-corpus documents. Re-seed only if you've deleted reference docs and want them restored.
+              </>}
+        </div>
+      </div>
+      <div className="flex gap-2 shrink-0">
+        <Button
+          onClick={() => onReseed(false)}
+          disabled={busy}
+          data-testid="reseed-corpus-btn"
+          className="rounded-sm bg-slate-900 hover:bg-slate-800 text-white h-9 font-semibold tracking-tight"
+        >
+          <ArrowsClockwise size={14} weight="bold" className={busy ? "animate-spin" : ""} />
+          <span className="ml-2">{busy ? "RE-SEEDING…" : "RE-SEED CORPUS"}</span>
+        </Button>
+        {!empty && (
+          <Button
+            onClick={() => onReseed(true)}
+            disabled={busy}
+            data-testid="reseed-force-btn"
+            variant="outline"
+            className="rounded-sm border-rose-300 text-rose-700 hover:bg-rose-50 hover:text-rose-800 h-9 font-mono uppercase text-[11px] tracking-wider"
+            title="Delete all existing base-corpus docs and re-ingest from scratch"
+          >
+            Force
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function AuditWidget({ items }) {
   return (

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
@@ -6,40 +6,15 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
-import { Separator } from "@/components/ui/separator";
+import { Books, List, PaperPlaneTilt, Robot, Trash } from "@phosphor-icons/react";
 import { toast } from "sonner";
-import {
-  PaperPlaneTilt, Plus, ChatCircle, ShieldCheck, SignOut, Trash,
-  Books, GearSix, FileText, Robot, User as UserIcon, Sparkle,
-  Copy, ThumbsUp, ThumbsDown, Warning, CalendarBlank, CheckSquare, SealCheck,
-  List, X as XIcon,
-} from "@phosphor-icons/react";
-import MarkdownRenderer from "@/components/MarkdownRenderer";
 import { createTypewriter } from "@/lib/typewriter";
 import { authStore } from "@/lib/auth-store";
 
-const SUGGESTIONS = [
-  "What are the OSHA requirements for confined space entry?",
-  "Walk me through a hot work permit procedure.",
-  "Explain the lockout/tagout 6-step procedure.",
-  "How do I conduct a Job Safety Analysis?",
-  "What goes into a proper incident root cause analysis?",
-];
-
-const DOC_TYPE_LABELS = {
-  sop: "SOP", incident_report: "Incident", risk_assessment: "Risk / HAZOP",
-  regulatory: "Regulatory", training: "Training", permit: "Permit",
-  policy: "Policy", msds: "MSDS / SDS", general: "General",
-};
-
-const SOURCE_LABELS = {
-  superadmin: { text: "Company", color: "bg-blue-600 text-white" },
-  turnstile_dms: { text: "Turnstile DMS", color: "bg-indigo-600 text-white" },
-  base_corpus: { text: "Base Corpus", color: "bg-slate-700 text-white" },
-  client_web: { text: "Client Web", color: "bg-emerald-600 text-white" },
-  platform_web: { text: "Platform Web", color: "bg-amber-500 text-slate-900" },
-};
+import { ChatSidebar } from "@/components/chat/ChatSidebar";
+import { EmptyState } from "@/components/chat/EmptyState";
+import { MessageRow } from "@/components/chat/MessageRow";
+import { SourceCard } from "@/components/chat/SourceCard";
 
 export default function ChatPage() {
   const { user, logout } = useAuth();
@@ -117,18 +92,12 @@ export default function ChatPage() {
     const token = authStore.getToken();
     const url = `${process.env.REACT_APP_BACKEND_URL}/api/chat/stream`;
     let buffer = "";
-    let streamedText = "";
-    let streamedSources = [];
-    let confidence = null;
-    let newSessionId = currentSessionId;
 
-    // Typewriter — gracefully drains backend bursts at ~60 chars/sec
     const typewriter = createTypewriter({
-      rate: 80,
-      maxBurst: 5,
-      onUpdate: (text) => {
+      rate: 80, maxBurst: 5,
+      onUpdate: (txt) => {
         setMessages((prev) => prev.map((m) =>
-          m.message_id === tempAsstId ? { ...m, content: text } : m,
+          m.message_id === tempAsstId ? { ...m, content: txt } : m,
         ));
       },
     });
@@ -137,9 +106,9 @@ export default function ChatPage() {
       const resp = await fetch(url, {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${token}`,
+          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
-          "Accept": "text/event-stream",
+          Accept: "text/event-stream",
         },
         body: JSON.stringify({ content: text, session_id: currentSessionId }),
       });
@@ -155,9 +124,7 @@ export default function ChatPage() {
         let data;
         try { data = JSON.parse(dataStr); } catch { data = dataStr; }
         if (eventType === "session") {
-          newSessionId = data.session_id;
           setCurrentSessionId(data.session_id);
-          // Swap the temp assistant message_id with the server-issued one so feedback POSTs hit the real id
           if (data.message_id) {
             setMessages((prev) => prev.map((m) =>
               m.message_id === tempAsstId ? { ...m, message_id: data.message_id } : m,
@@ -165,23 +132,20 @@ export default function ChatPage() {
             tempAsstId = data.message_id;
           }
         } else if (eventType === "sources") {
-          streamedSources = data;
           setActiveSources(data);
           setMessages((prev) => prev.map((m) =>
             m.message_id === tempAsstId ? { ...m, sources: data } : m,
           ));
         } else if (eventType === "token") {
-          const t = typeof data === "string" ? data : String(data);
-          typewriter.append(t);
+          typewriter.append(typeof data === "string" ? data : String(data));
         } else if (eventType === "done") {
-          confidence = data?.confidence_score ?? null;
           typewriter.forceComplete();
           setMessages((prev) => prev.map((m) =>
             m.message_id === tempAsstId
               ? {
                   ...m,
                   content: data?.final_text || typewriter.getRevealed(),
-                  confidence_score: confidence,
+                  confidence_score: data?.confidence_score ?? null,
                   is_high_risk: !!data?.is_high_risk,
                   suggested_followups: data?.suggested_followups || [],
                   _streaming: false,
@@ -203,7 +167,7 @@ export default function ChatPage() {
           if (!blk.trim()) continue;
           const lines = blk.split("\n");
           let eventType = "message";
-          let dataLines = [];
+          const dataLines = [];
           for (const ln of lines) {
             if (ln.startsWith("event:")) eventType = ln.slice(6).trim();
             else if (ln.startsWith("data:")) dataLines.push(ln.slice(5).trim());
@@ -248,10 +212,7 @@ export default function ChatPage() {
   };
 
   const deleteCurrentSession = async () => {
-    if (!currentSessionId) {
-      startNew();
-      return;
-    }
+    if (!currentSessionId) { startNew(); return; }
     await deleteSession(currentSessionId);
   };
 
@@ -301,143 +262,26 @@ export default function ChatPage() {
   };
 
   const isEmpty = messages.length === 0;
+  const sendingPlaceholderVisible = sending && messages.length > 0 &&
+    messages[messages.length - 1]?.role === "assistant" &&
+    !messages[messages.length - 1]?.content &&
+    !messages[messages.length - 1]?.sources?.length;
 
   return (
     <div className="h-[100dvh] flex bg-slate-50 text-slate-900 overflow-hidden">
-      {/* MOBILE BACKDROP */}
-      {mobileSidebarOpen && (
-        <div
-          onClick={() => setMobileSidebarOpen(false)}
-          className="lg:hidden fixed inset-0 z-30 bg-slate-900/50 backdrop-blur-sm"
-          data-testid="mobile-sidebar-backdrop"
-          aria-hidden="true"
-        />
-      )}
+      <ChatSidebar
+        sessions={sessions}
+        currentSessionId={currentSessionId}
+        user={user}
+        mobileOpen={mobileSidebarOpen}
+        onClose={() => setMobileSidebarOpen(false)}
+        onStartNew={startNew}
+        onLoadSession={loadSession}
+        onDeleteSession={deleteSession}
+        onClearAll={clearAllSessions}
+        onLogout={() => { logout(); navigate("/login"); }}
+      />
 
-      {/* SIDEBAR */}
-      <aside
-        className={`fixed lg:static inset-y-0 left-0 z-40 w-[280px] lg:w-[260px] border-r border-slate-200 bg-white flex flex-col transform transition-transform duration-200 lg:translate-x-0 ${
-          mobileSidebarOpen ? "translate-x-0" : "-translate-x-full"
-        }`}
-        data-testid="chat-sidebar"
-      >
-        <div className="p-4 border-b border-slate-200 flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 mb-1">
-              <div className="w-7 h-7 bg-slate-900 flex items-center justify-center shrink-0">
-                <ShieldCheck size={16} weight="bold" className="text-white" />
-              </div>
-              <div className="font-bold tracking-tight text-slate-900 truncate">EHS Intelligence</div>
-            </div>
-            <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-slate-500">Turnstile360 RAG</div>
-          </div>
-          <button
-            onClick={() => setMobileSidebarOpen(false)}
-            data-testid="close-sidebar-btn"
-            className="lg:hidden p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors"
-            aria-label="Close menu"
-          >
-            <XIcon size={18} weight="bold" />
-          </button>
-        </div>
-
-        <div className="p-3">
-          <Button
-            onClick={startNew}
-            data-testid="new-chat-btn"
-            className="w-full rounded-sm bg-slate-900 hover:bg-slate-800 text-white font-semibold tracking-tight h-10"
-          >
-            <Plus size={16} weight="bold" />
-            <span className="ml-2">NEW CHAT</span>
-          </Button>
-        </div>
-
-        <div className="px-3 pb-1 flex items-center justify-between gap-2">
-          <div className="font-mono text-[10px] uppercase tracking-[0.25em] text-slate-500 px-1">Recent</div>
-          {sessions.length > 0 && (
-            <button
-              onClick={clearAllSessions}
-              data-testid="clear-all-sessions-btn"
-              className="font-mono text-[10px] uppercase tracking-wider px-1.5 py-0.5 text-slate-500 hover:text-rose-700 hover:bg-rose-50 border border-transparent hover:border-rose-200 transition-colors"
-              title="Delete all chats"
-            >
-              Clear all
-            </button>
-          )}
-        </div>
-        <ScrollArea className="flex-1 px-2">
-          <div className="space-y-px pb-2">
-            {sessions.length === 0 && (
-              <div className="px-3 py-4 text-xs text-slate-500 font-mono">No conversations yet</div>
-            )}
-            {sessions.map((s) => (
-              <div
-                key={s.id}
-                className={`group w-full px-2 py-2 border border-transparent hover:border-slate-200 hover:bg-slate-50 transition-colors flex items-center gap-1.5 ${
-                  currentSessionId === s.id ? "bg-slate-100 border-slate-200" : ""
-                }`}
-              >
-                <button
-                  onClick={(e) => deleteSession(s.id, e)}
-                  data-testid={`delete-session-${s.id}`}
-                  className="p-1.5 text-slate-400 hover:text-rose-700 hover:bg-rose-50 border border-transparent hover:border-rose-200 shrink-0 transition-colors"
-                  aria-label="Delete chat"
-                  title="Delete chat"
-                >
-                  <Trash size={14} weight="bold" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => loadSession(s.id)}
-                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); loadSession(s.id); } }}
-                  data-testid={`session-${s.id}`}
-                  className="flex-1 min-w-0 text-left flex items-center gap-2 px-1 py-0.5 cursor-pointer"
-                >
-                  <ChatCircle size={14} className="text-slate-400 shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium truncate text-slate-800">{s.title || "Untitled"}</div>
-                    <div className="font-mono text-[10px] text-slate-400 uppercase tracking-wider">
-                      {s.message_count} msgs
-                    </div>
-                  </div>
-                </button>
-              </div>
-            ))}
-          </div>
-        </ScrollArea>
-
-        <div className="border-t border-slate-200 p-3 space-y-1">
-          {user?.role === "superadmin" && (
-            <button
-              onClick={() => navigate("/admin/stats")}
-              data-testid="goto-admin-btn"
-              className="w-full flex items-center gap-2 px-3 py-2 hover:bg-slate-50 border border-transparent hover:border-slate-200 text-sm transition-colors"
-            >
-              <GearSix size={14} className="text-slate-600" />
-              <span className="font-medium">Admin Panel</span>
-            </button>
-          )}
-          <div className="flex items-center gap-2 px-3 py-2">
-            <div className="w-7 h-7 bg-slate-100 border border-slate-200 flex items-center justify-center">
-              <UserIcon size={14} weight="bold" className="text-slate-600" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-xs font-medium truncate">{user?.full_name || user?.email}</div>
-              <div className="font-mono text-[9px] text-slate-500 uppercase tracking-wider">{user?.role}</div>
-            </div>
-            <button
-              onClick={() => { logout(); navigate("/login"); }}
-              data-testid="logout-btn"
-              className="text-slate-400 hover:text-rose-600 transition-colors"
-              title="Sign out"
-            >
-              <SignOut size={15} />
-            </button>
-          </div>
-        </div>
-      </aside>
-
-      {/* MAIN */}
       <main className="flex-1 flex flex-col min-w-0">
         <header className="h-14 border-b border-slate-200 bg-white px-4 sm:px-6 flex items-center justify-between gap-3" data-testid="chat-header">
           <div className="flex items-center gap-3 min-w-0">
@@ -475,7 +319,6 @@ export default function ChatPage() {
         </header>
 
         <div className="flex-1 flex min-h-0">
-          {/* CONVERSATION */}
           <div className="flex-1 flex flex-col min-w-0">
             <ScrollArea className="flex-1">
               <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
@@ -494,7 +337,7 @@ export default function ChatPage() {
                         onDelete={deleteMessage}
                       />
                     ))}
-                    {sending && messages.length > 0 && messages[messages.length - 1]?.role === "assistant" && !messages[messages.length - 1]?.content && !messages[messages.length - 1]?.sources?.length && (
+                    {sendingPlaceholderVisible && (
                       <div className="flex gap-3 -mt-3" data-testid="thinking-indicator">
                         <div className="w-8 h-8 bg-slate-900 flex items-center justify-center shrink-0 opacity-0">
                           <Robot size={16} weight="bold" className="text-white" />
@@ -545,7 +388,6 @@ export default function ChatPage() {
             </div>
           </div>
 
-          {/* SOURCES PANEL */}
           <aside className="w-[320px] border-l border-slate-200 bg-slate-50 hidden xl:flex flex-col" data-testid="sources-panel">
             <div className="h-14 border-b border-slate-200 bg-white px-4 flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -566,256 +408,6 @@ export default function ChatPage() {
           </aside>
         </div>
       </main>
-    </div>
-  );
-}
-
-function EmptyState({ onPick }) {
-  return (
-    <div className="py-8 sm:py-12" data-testid="empty-state">
-      <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-slate-500 mb-3">AI co-pilot</div>
-      <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tighter text-slate-900 mb-3 leading-[1.05]">
-        What EHS question is on your mind?
-      </h1>
-      <p className="text-slate-600 text-sm sm:text-base mb-8 sm:mb-10 max-w-2xl">
-        Ask anything about your safety procedures, permits, HAZOPs, incidents, OSHA standards, ISO requirements or chemical SDS data. I'll search your knowledge base and cite the source.
-      </p>
-
-      <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-slate-500 mb-3">Try one of these</div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-px bg-slate-200">
-        {SUGGESTIONS.map((q, i) => (
-          <button
-            key={i}
-            onClick={() => onPick(q)}
-            data-testid={`suggestion-${i}`}
-            className="text-left bg-white p-3 sm:p-4 hover:bg-blue-50 hover:text-blue-900 transition-colors group flex items-start gap-3"
-          >
-            <Sparkle size={14} weight="bold" className="text-blue-600 mt-1 shrink-0" />
-            <span className="text-sm font-medium leading-snug">{q}</span>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function MessageRow({ msg, onCopy, onFeedback, onFollowup, onAcknowledge, onDelete }) {
-  if (msg.role === "user") {
-    return (
-      <div className="flex gap-3 group" data-testid="user-message">
-        <div className="w-8 h-8 bg-blue-600 flex items-center justify-center shrink-0">
-          <UserIcon size={16} weight="bold" className="text-white" />
-        </div>
-        <div className="flex-1 pt-1 min-w-0">
-          <div className="flex items-center justify-between gap-2 mb-1">
-            <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-slate-500">You</div>
-            <button
-              onClick={() => onDelete?.(msg.message_id)}
-              data-testid={`delete-user-msg-${msg.message_id}`}
-              className="p-0.5 text-slate-400 hover:text-rose-600 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity"
-              title="Delete this question and its reply"
-              aria-label="Delete message"
-            >
-              <Trash size={12} weight="bold" />
-            </button>
-          </div>
-          <div className="text-slate-800 whitespace-pre-wrap">{msg.content}</div>
-        </div>
-      </div>
-    );
-  }
-  return (
-    <div className="flex gap-3" data-testid="assistant-message">
-      <div className="w-8 h-8 bg-slate-900 flex items-center justify-center shrink-0">
-        <Robot size={16} weight="bold" className="text-white" />
-      </div>
-      <div className="flex-1 pt-1 min-w-0">
-        <div className="flex items-center gap-2 mb-1">
-          <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-slate-500">EHS AI</div>
-          {msg.is_high_risk && (
-            <Badge data-testid="high-risk-badge" className="rounded-sm bg-rose-50 text-rose-800 border border-rose-300 hover:bg-rose-50 font-mono text-[10px] uppercase tracking-wider px-1.5 py-0">
-              <Warning size={10} weight="bold" className="mr-0.5" />High Risk
-            </Badge>
-          )}
-          {typeof msg.confidence_score === "number" && (
-            <Badge data-testid="confidence-badge" className="rounded-sm bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-50 font-mono text-[10px] uppercase tracking-wider px-1.5 py-0">
-              {(msg.confidence_score * 100).toFixed(0)}% match
-            </Badge>
-          )}
-        </div>
-        <MarkdownRenderer content={msg.content || ""} sources={msg.sources || []} />
-        {msg._streaming && <span className="streaming-dot" data-testid="streaming-cursor"></span>}
-        {msg.sources?.length > 0 && (
-          <div className="mt-4 pt-3 border-t border-slate-200">
-            <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-slate-500 mb-2">Citations</div>
-            <div className="flex flex-wrap gap-1">
-              {msg.sources.map((s, i) => (
-                <HoverCard key={`${s.doc_id || "src"}-${i}`} openDelay={200}>
-                  <HoverCardTrigger asChild>
-                    <button
-                      className="font-mono text-[10px] uppercase tracking-wider px-2 py-1 bg-slate-100 hover:bg-slate-900 hover:text-white border border-slate-200 transition-colors"
-                      data-testid={`citation-${i}`}
-                    >
-                      [{i + 1}] {s.title.slice(0, 40)}{s.title.length > 40 ? "…" : ""}
-                    </button>
-                  </HoverCardTrigger>
-                  <HoverCardContent className="w-96 p-4 rounded-sm border-slate-300 bg-white" side="top">
-                    <SourceInner src={s} />
-                  </HoverCardContent>
-                </HoverCard>
-              ))}
-            </div>
-          </div>
-        )}
-        {!msg._streaming && msg.content && (
-          <div className="mt-3 flex items-center flex-wrap gap-1" data-testid="message-actions">
-            <button
-              onClick={() => onCopy?.(msg.content)}
-              data-testid={`copy-msg-${msg.message_id}`}
-              className="flex items-center gap-1 text-[10px] font-mono uppercase tracking-wider px-2 py-1 border border-transparent hover:border-slate-200 hover:bg-slate-50 text-slate-500 hover:text-slate-800 transition-colors"
-              title="Copy answer"
-            >
-              <Copy size={12} weight="bold" /> Copy
-            </button>
-            <button
-              onClick={() => onFeedback?.(msg.message_id, "up")}
-              data-testid={`thumbs-up-${msg.message_id}`}
-              className={`flex items-center gap-1 text-[10px] font-mono uppercase tracking-wider px-2 py-1 border transition-colors ${
-                msg.feedback === "up"
-                  ? "border-emerald-300 bg-emerald-50 text-emerald-700"
-                  : "border-transparent hover:border-emerald-200 hover:bg-emerald-50 text-slate-500 hover:text-emerald-700"
-              }`}
-              title="Helpful"
-            >
-              <ThumbsUp size={12} weight={msg.feedback === "up" ? "fill" : "bold"} /> Helpful
-            </button>
-            <button
-              onClick={() => onFeedback?.(msg.message_id, "down")}
-              data-testid={`thumbs-down-${msg.message_id}`}
-              className={`flex items-center gap-1 text-[10px] font-mono uppercase tracking-wider px-2 py-1 border transition-colors ${
-                msg.feedback === "down"
-                  ? "border-rose-300 bg-rose-50 text-rose-700"
-                  : "border-transparent hover:border-rose-200 hover:bg-rose-50 text-slate-500 hover:text-rose-700"
-              }`}
-              title="Flag for SME review"
-            >
-              <ThumbsDown size={12} weight={msg.feedback === "down" ? "fill" : "bold"} /> Flag
-            </button>
-            {msg.acknowledged_at ? (
-              <span
-                data-testid={`acknowledged-${msg.message_id}`}
-                className="flex items-center gap-1 text-[10px] font-mono uppercase tracking-wider px-2 py-1 border border-emerald-300 bg-emerald-50 text-emerald-800"
-                title={`Acknowledged ${new Date(msg.acknowledged_at).toISOString().slice(0, 19).replace("T", " ")} UTC`}
-              >
-                <SealCheck size={12} weight="fill" /> Acknowledged
-              </span>
-            ) : (
-              <button
-                onClick={() => onAcknowledge?.(msg.message_id)}
-                data-testid={`acknowledge-${msg.message_id}`}
-                className={`flex items-center gap-1 text-[10px] font-mono uppercase tracking-wider px-2 py-1 border transition-colors ${
-                  msg.is_high_risk
-                    ? "border-amber-400 bg-amber-50 text-amber-800 hover:bg-amber-100 animate-pulse"
-                    : "border-transparent hover:border-blue-200 hover:bg-blue-50 text-slate-500 hover:text-blue-700"
-                }`}
-                title={msg.is_high_risk ? "High-risk procedure — acknowledgement strongly recommended for compliance" : "I understand and will follow this guidance"}
-              >
-                <CheckSquare size={12} weight="bold" /> {msg.is_high_risk ? "Acknowledge (required)" : "I understand"}
-              </button>
-            )}
-            {!msg.acknowledged_at && (
-              <button
-                onClick={() => onDelete?.(msg.message_id)}
-                data-testid={`delete-msg-${msg.message_id}`}
-                className="flex items-center gap-1 text-[10px] font-mono uppercase tracking-wider px-2 py-1 border border-transparent hover:border-rose-200 hover:bg-rose-50 text-slate-500 hover:text-rose-700 transition-colors ml-auto"
-                title="Delete this Q&A pair"
-              >
-                <Trash size={12} weight="bold" /> Delete
-              </button>
-            )}
-          </div>
-        )}
-        {!msg._streaming && msg.suggested_followups?.length > 0 && (
-          <div className="mt-3" data-testid="followups">
-            <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-slate-500 mb-2">Follow-up</div>
-            <div className="flex flex-wrap gap-2">
-              {msg.suggested_followups.map((q, i) => (
-                <button
-                  key={`fu-${i}-${(q || "").slice(0, 20)}`}
-                  onClick={() => onFollowup?.(q)}
-                  data-testid={`followup-${i}`}
-                  className="text-left text-xs px-3 py-1.5 bg-white hover:bg-blue-50 hover:border-blue-300 text-slate-700 hover:text-blue-800 border border-slate-300 transition-colors"
-                >
-                  <span className="text-blue-600 mr-1">↗</span>{q}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function SourceCard({ index, src }) {
-  const label = SOURCE_LABELS[src.source] || { text: src.source, color: "bg-slate-700 text-white" };
-  const lu = src.last_updated ? new Date(src.last_updated) : null;
-  return (
-    <div className="bg-white border border-slate-200 hover:border-slate-400 transition-colors p-3 group" data-testid={`source-card-${index}`}>
-      <div className="flex items-start justify-between gap-2 mb-2">
-        <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-slate-500">[{String(index).padStart(2, "0")}]</div>
-        <div className="font-mono text-[10px] uppercase tracking-wider text-emerald-700">
-          {(src.similarity_score * 100).toFixed(0)}%
-        </div>
-      </div>
-      <div className="font-semibold text-sm leading-tight text-slate-900 mb-2 line-clamp-2">{src.title}</div>
-      <div className="flex flex-wrap gap-1 mb-2">
-        <span className={`text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 ${label.color}`}>{label.text}</span>
-        <span className="text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 bg-slate-100 border border-slate-200 text-slate-700">
-          {DOC_TYPE_LABELS[src.doc_type] || src.doc_type}
-        </span>
-        {src.jurisdiction && (
-          <span className="text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 bg-blue-50 border border-blue-200 text-blue-800">
-            {src.jurisdiction}
-          </span>
-        )}
-      </div>
-      <div className="text-xs text-slate-600 line-clamp-3 leading-snug mb-1.5">{src.chunk_text}</div>
-      {lu && !isNaN(lu) && (
-        <div className="font-mono text-[9px] uppercase tracking-wider text-slate-400">
-          Updated {lu.toISOString().slice(0, 10)}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function SourceInner({ src }) {
-  const label = SOURCE_LABELS[src.source] || { text: src.source, color: "bg-slate-700 text-white" };
-  const lu = src.last_updated ? new Date(src.last_updated) : null;
-  return (
-    <div>
-      <div className="flex flex-wrap gap-1 mb-2">
-        <span className={`text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 ${label.color}`}>{label.text}</span>
-        <span className="text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 bg-slate-100 border border-slate-200 text-slate-700">
-          {DOC_TYPE_LABELS[src.doc_type] || src.doc_type}
-        </span>
-        {src.jurisdiction && (
-          <span className="text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 bg-blue-50 border border-blue-200 text-blue-800">
-            {src.jurisdiction}
-          </span>
-        )}
-        <span className="text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 bg-emerald-50 border border-emerald-200 text-emerald-700">
-          {(src.similarity_score * 100).toFixed(0)}% match
-        </span>
-      </div>
-      <div className="font-semibold text-sm text-slate-900 mb-2">{src.title}</div>
-      <div className="text-xs text-slate-600 leading-relaxed max-h-48 overflow-y-auto">{src.chunk_text}</div>
-      {lu && !isNaN(lu) && (
-        <div className="font-mono text-[9px] uppercase tracking-wider text-slate-400 mt-2">
-          As of {lu.toISOString().slice(0, 10)}
-        </div>
-      )}
     </div>
   );
 }

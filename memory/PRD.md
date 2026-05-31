@@ -155,18 +155,34 @@ EHS (Environment, Health & Safety) RAG chatbot for Turnstile360 — adapted from
 - 375 × 800 (iPhone SE / 13 mini): chat drawer, EmptyState, suggestion grid, send button, admin grid all render without horizontal overflow
 - 768 × 1024 (iPad portrait): admin tables scroll horizontally, headers wrap, chat full-width with hamburger
 
+## v3.2 — Branding, Bulk Upload, Chat Refactor, Re-seed (Feb 2026)
+
+### Implemented
+- **Branding**: title `Turnstile360 RAG`, Turnstile360 logo as favicon (16/32/64/.ico) + login brand panel + chat sidebar + admin sidebar; "Made with Emergent" badge removed from `index.html` with CSS guard
+- **Bulk document upload**: file picker `multiple={true}` with per-file progress bar + failure surface; settings apply to entire batch
+- **Chat delete UX**: per-message Q&A pair delete, per-session sidebar delete (always-visible trash icon moved to the LEFT side of each row), header-level "delete current chat", "Clear all" bulk wipe; backend endpoints `DELETE /api/chat/messages/{id}`, `DELETE /api/chat/sessions`, `DELETE /api/chat/sessions/{id}`. Acknowledged messages are protected (409).
+- **ChatPage refactor**: split 700-line `ChatPage.jsx` into `components/chat/{ChatSidebar,EmptyState,MessageRow,SourceCard,constants}.jsx`. Page now contains only state + controllers.
+- **Admin Re-seed Corpus**: new endpoint `POST /api/admin/reseed-corpus?force=bool` and "Knowledge base health" panel on the Stats page with a one-click re-seed (idempotent) and a Force re-seed (red, confirms; deletes existing base-corpus docs before re-ingesting). Auto-detects empty corpus and shows an amber "Corpus is empty" warning.
+- **DialogDescription** added to upload + web-source dialogs (fixes Radix a11y console warning)
+- **seed.py** `import os` fix + `reseed_base_corpus()` extracted as a reusable async function
+
+### Verified
+- Streaming chat still works after refactor (sources retrieved, answer rendered)
+- `POST /api/admin/reseed-corpus` returns 200 with `{ok, created, skipped, failed, total_chunks, errors}`
+- Bulk upload tested back-to-back: 2 docs → both 201, count grew correctly
+- Login / chat / admin all use the Turnstile360 logo at 32-40px
+
 ## Backlog
 
 ### Each is its own session
-- **Multi-language detection + bilingual answers** (Claude can; needs UI + retrieval language tag)
+- **Multi-language detection + bilingual answers**
 - **Photo/image input** via Claude vision (drum labels, PPE photos, hazard photos)
 - **Voice I/O** (Whisper STT + TTS) for hands-free field use
-- **Incident report integration** with Turnstile360 (pre-fill incident from chat context)
-- **SDS / chemical database integration** (PubChem API for live SDS lookup)
-- **Offline / PWA mode** for low-connectivity field workers
-- **Refactor ChatPage.jsx** (still 700+ lines — split MessageList / ChatInput / Sidebar / SourceCard)
+- **Incident report integration** with Turnstile360 (pre-fill incident from chat context — pending API spec from user)
+- **SDS / chemical database integration** (PubChem API)
+- **Offline / PWA mode**
 
 ## Next Tasks
-1. Multi-language support (largest competitive moat for international rollouts)
-2. Incident-report integration (when Turnstile API spec lands)
-3. Photo/image input (low effort, very high field impact — Claude vision already available)
+1. Diagnose / fix production hang at rag.turnstile360.com (run RE-SEED CORPUS from admin, or pursue env-var path)
+2. Multi-language support
+3. Photo input via Claude vision

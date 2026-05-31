@@ -2,9 +2,10 @@ import { useState } from "react";
 import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/lib/auth-context";
 import {
-  ShieldCheck, ChartBar, FileText, Globe, ArrowLeft, SignOut, User as UserIcon,
+  ChartBar, FileText, Globe, ArrowLeft, SignOut, User as UserIcon,
   ChatCenteredDots, ChartLineUp, SealCheck, List, X as XIcon,
 } from "@phosphor-icons/react";
+import { Logo } from "@/components/Logo";
 
 const NAV_ITEMS = [
   { to: "/admin/stats", label: "Stats", icon: ChartBar, testid: "nav-stats" },
@@ -45,9 +46,7 @@ export default function AdminLayout() {
         <div className="p-4 border-b border-slate-200 flex items-start justify-between gap-2">
           <div className="min-w-0">
             <div className="flex items-center gap-2 mb-1">
-              <div className="w-7 h-7 bg-slate-900 flex items-center justify-center shrink-0">
-                <ShieldCheck size={16} weight="bold" className="text-white" />
-              </div>
+              <Logo size={32} />
               <div className="font-bold tracking-tight text-slate-900 truncate">EHS Admin</div>
             </div>
             <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-slate-500">Control Room</div>
@@ -124,9 +123,7 @@ export default function AdminLayout() {
             <List size={20} weight="bold" />
           </button>
           <div className="flex items-center gap-2 min-w-0">
-            <div className="w-6 h-6 bg-slate-900 flex items-center justify-center shrink-0">
-              <ShieldCheck size={13} weight="bold" className="text-white" />
-            </div>
+            <Logo size={24} />
             <div className="font-bold tracking-tight text-slate-900 truncate">{currentLabel}</div>
           </div>
         </div>

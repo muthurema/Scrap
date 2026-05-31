@@ -1,11 +1,19 @@
-"""Admin routes: stats, companies, Turnstile sync stub."""
+"""Admin routes: stats, companies, Turnstile sync stub, corpus re-seed."""
+import sys
 import uuid
+from pathlib import Path
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.db import companies_col, documents_col, chat_sessions_col, chat_messages_col, web_sources_col, users_col
 from app.schemas import CompanyCreate, CompanyOut, SystemStatsOut
 from app.auth import require_superadmin
+from app.audit import audit
+
+# seed.py lives at /app/backend/seed.py (sibling of app/ package)
+_BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
+if str(_BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(_BACKEND_DIR))
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
@@ -110,3 +118,32 @@ async def sync_turnstile(company_id: str, current_user: dict = Depends(require_s
         "summary": {"new": 0, "updated": 0, "skipped": 0, "errors": 0},
         "note": "Turnstile DMS sync is stubbed in this demo build. Wire the real API in app/services/turnstile_sync.py.",
     }
+
+
+@router.post("/reseed-corpus")
+async def reseed_corpus(
+    request: Request,
+    force: bool = False,
+    current_user: dict = Depends(require_superadmin),
+):
+    """
+    Re-runs the bundled base EHS corpus ingestion (OSHA confined space, ISO 45001, LOTO, JSA,
+    GHS, hot work, RCA). Idempotent — skips documents whose title is already present.
+    Use `?force=true` to delete the existing base-corpus docs first and re-ingest from scratch.
+    Returns a stats summary.
+    """
+    try:
+        from seed import reseed_base_corpus  # noqa
+    except ImportError as e:
+        raise HTTPException(500, f"seed module not available: {e}")
+
+    stats = await reseed_base_corpus(force=force)
+    await audit(
+        user=current_user,
+        action="reseed_base_corpus",
+        resource_type="documents",
+        request=request,
+        details={"force": force, **{k: v for k, v in stats.items() if k != "errors"},
+                 "error_count": len(stats.get("errors", []))},
+    )
+    return {"ok": True, "force": force, **stats}

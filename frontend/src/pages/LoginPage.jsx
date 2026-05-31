@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { ShieldCheck, ArrowRight } from "@phosphor-icons/react";
+import { ArrowRight } from "@phosphor-icons/react";
+import { Logo } from "@/components/Logo";
 
 export default function LoginPage() {
   const { login, register } = useAuth();
@@ -52,9 +53,7 @@ export default function LoginPage() {
       >
         <div className="absolute inset-0 bg-slate-900/75"></div>
         <div className="relative z-10 flex items-center gap-3">
-          <div className="w-9 h-9 border border-white/40 flex items-center justify-center">
-            <ShieldCheck size={20} weight="bold" />
-          </div>
+          <Logo size={40} />
           <div>
             <div className="font-mono text-xs uppercase tracking-[0.25em] text-white/60">Turnstile360</div>
             <div className="font-bold text-lg tracking-tight">EHS INTELLIGENCE</div>
@@ -90,9 +89,7 @@ export default function LoginPage() {
       <div className="flex-1 flex items-center justify-center p-6 sm:p-8 bg-slate-50">
         <div className="w-full max-w-md">
           <div className="lg:hidden mb-8 flex items-center gap-3">
-            <div className="w-9 h-9 border border-slate-300 flex items-center justify-center">
-              <ShieldCheck size={20} weight="bold" className="text-slate-900" />
-            </div>
+            <Logo size={36} />
             <div className="font-bold text-lg tracking-tight">EHS INTELLIGENCE</div>
           </div>
 
