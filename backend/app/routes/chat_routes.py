@@ -211,6 +211,11 @@ async def chat_stream(payload: ChatMessageIn, request: Request, current_user: di
                         }
                         await queue.put(f"event: sources\ndata: {json.dumps(wire_payload)}\n\n")
                     elif etype == "token":
+                        # Continuously accumulate so a mid-stream LLM error
+                        # still persists the partial answer to Mongo. The
+                        # `done` event (when received) will overwrite with
+                        # the canonical final_text.
+                        final_text_holder["text"] = (final_text_holder.get("text") or "") + (data or "")
                         await queue.put(f"event: token\ndata: {json.dumps(data)}\n\n")
                     elif etype == "done":
                         final_text_holder["text"] = data.get("final_text", "")

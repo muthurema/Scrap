@@ -474,15 +474,32 @@ class RAGEngine:
             full_text = []
             if high_risk:
                 full_text.append(f"{ESCALATION_BANNER}\n\n---\n\n")
-            response = await litellm.acompletion(**_litellm_params(messages=messages, stream=True))
-            async for part in response:
-                try:
-                    delta = part.choices[0].delta.content
-                except Exception:
-                    delta = None
-                if delta:
-                    full_text.append(delta)
-                    yield {"type": "token", "data": delta}
+            stream_completed_cleanly = False
+            try:
+                response = await litellm.acompletion(**_litellm_params(messages=messages, stream=True))
+                async for part in response:
+                    try:
+                        delta = part.choices[0].delta.content
+                    except Exception:
+                        delta = None
+                    if delta:
+                        full_text.append(delta)
+                        yield {"type": "token", "data": delta}
+                stream_completed_cleanly = True
+            except Exception as stream_err:
+                # litellm sometimes raises during the async iterator AFTER we've
+                # already streamed a usable answer (e.g. its post-stream usage-
+                # logging path throws). If we have any text buffered we treat
+                # the response as good-enough and proceed to `done` so the
+                # frontend renders the answer instead of nuking the message.
+                produced = "".join(full_text).strip()
+                if produced and len(produced) > 50:
+                    logger.warning(
+                        f"litellm raised after streaming {len(produced)} chars — "
+                        f"finishing gracefully. Error: {stream_err}"
+                    )
+                else:
+                    raise
 
             final = "".join(full_text)
             avg_score = (sum(c.boosted_score for c in chunks) / len(chunks)) if chunks else None
@@ -499,7 +516,7 @@ class RAGEngine:
                     "confidence_score": avg_score,
                     "is_high_risk": high_risk,
                     "suggested_followups": [],  # populated via lazy endpoint
-                    "followups_pending": True,
+                    "followups_pending": stream_completed_cleanly,
                 },
             }
         except Exception as e:

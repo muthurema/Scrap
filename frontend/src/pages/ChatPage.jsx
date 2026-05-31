@@ -238,6 +238,28 @@ export default function ChatPage() {
             });
           }
         } else if (eventType === "error") {
+          // If we've already streamed any tokens, treat this as a
+          // graceful degradation rather than nuking the message: the
+          // backend may have streamed a usable answer and then hit a
+          // post-stream litellm hiccup. Preserve the partial; the outer
+          // catch only fires when we have NOTHING.
+          typewriter.forceComplete();
+          const revealed = typewriter.getRevealed();
+          if (revealed && revealed.length > 20) {
+            setMessages((prev) => prev.map((m) =>
+              m.message_id === tempAsstId
+                ? {
+                    ...m,
+                    content: revealed,
+                    _streaming: false,
+                    _partial: true,
+                    followups_pending: false,
+                  }
+                : m,
+            ));
+            toast.warning("Connection hiccup at the end of the stream — answer may be slightly truncated");
+            return; // exit handleEvent cleanly without throwing
+          }
           throw new Error(data?.message || "Stream error");
         }
       };

@@ -250,6 +250,26 @@ EHS (Environment, Health & Safety) RAG chatbot for Turnstile360 — adapted from
 - Diagnose production hang at rag.turnstile360.com (use Re-seed Corpus button after redeploy)
 - Cleanup `// authenticate` placeholder comments across frontend/backend (P2)
 
+## v3.11 — Bug fix: "answer is generated but not displayed; refresh shows it" (Feb 2026, P0)
+
+### Symptom
+User reported that after sending a chat message, the assistant message stayed empty during streaming but the answer appeared after a page refresh.
+
+### Root cause
+1. The Emergent LLM Key proxy occasionally throws `litellm.MidStreamFallbackError: ... Error building chunks for logging/streaming usage calculation` — a transient hiccup inside litellm's post-stream usage-accounting path. When this fires AFTER tokens were already streamed, our rag_engine jumped to `except`, yielded `event: error`, and never yielded `event: done`.
+2. Frontend's error handler called `throw` → outer `catch` removed both temp messages with `setMessages((prev) => prev.filter(...))`. The user's question and the streamed answer disappeared from the UI.
+3. Mongo's `final_text_holder["text"]` was only populated on the `done` event. Since `done` never arrived on the error path, the assistant message saved to Mongo had `content=""`. (The user occasionally saw answers after refresh because *some* requests completed cleanly — those persisted normally.)
+
+### Fix
+- `app/rag_engine.py stream()` — wrapped the `async for part in response:` token loop in try/except. If litellm raises AFTER the loop has produced >50 chars of content, we log the upstream warning and proceed to `done` with the partial; only re-raise (→ error event) when zero usable content was streamed.
+- `app/routes/chat_routes.py event_gen()` — on every `token` event, append the delta to `final_text_holder["text"]` continuously. Mongo persistence in the `finally` block now always saves whatever was streamed, regardless of whether `done` arrived.
+- `app/rag_engine.py done event` — `followups_pending` is now `True` only when the stream completed cleanly (else the lazy followups call would generate suggestions for a possibly-truncated answer).
+- `ChatPage.jsx` error handler — on `event: error`, if the typewriter has revealed > 20 chars, mark the message `_streaming: false`, set `content` to the revealed text, flag `_partial: true`, and show a friendly warning toast instead of throwing. Outer catch only fires on a true zero-content failure.
+
+### Verified
+- Live SSE smoke ("What is OSHA?") with cleanly-completing stream: **18 token events streamed in 8 s**, `done` arrives, full answer rendered.
+- Backend regression: 27/27 across iter5 + iter7 still passing.
+
 ## v3.10 — Hybrid Anthropic direct path + multi-tenant source filtering + clickable sources (Feb 2026)
 
 User picked option (a) from v3.9. Three product changes, all tested end-to-end.
