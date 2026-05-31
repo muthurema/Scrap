@@ -248,3 +248,24 @@ EHS (Environment, Health & Safety) RAG chatbot for Turnstile360 — adapted from
 - Incident report integration with Turnstile360 (pending API spec)
 - SDS / chemical database integration (PubChem)
 - Diagnose production hang at rag.turnstile360.com (use Re-seed Corpus button after redeploy)
+- Cleanup `// authenticate` placeholder comments across frontend/backend (P2)
+
+## v3.5 — Event-loop responsiveness during ingestion (Feb 2026, P0 fix)
+
+### Problem
+Admin uploads of a large document froze the entire FastAPI process — concurrent `/api/health` and `/api/auth/login` calls hung indefinitely with no errors. Root cause: synchronous CPU-bound work running on the asyncio event loop in a single-worker uvicorn (workers must stay at 1 because fastembed + qdrant local-file mode aren't fork-safe).
+
+### Fixes
+- `app/auth.py` — new `hash_password_async` / `verify_password_async` wrappers (bcrypt offloaded to threadpool); applied in `auth_routes.py` for register + login
+- `app/routes/document_routes.py` — background processor now reads the uploaded file via `asyncio.to_thread` (a 300MB sync `f.read()` no longer blocks the loop)
+- `app/vector_store.py` — `upsert_chunks` batches by 64 with `asyncio.sleep(0)` between batches (yields to event loop, bounds memory for huge docs)
+- `app/embeddings.py` — fastembed models constructed with `threads=settings.embed_onnx_threads` (default = half-cores, range 2-8) so embedding can't saturate every core, leaving CPU headroom for login/chat
+- `app/config.py` — new `EMBED_ONNX_THREADS` env var
+- `server.py` — `/api/health` no longer touches qdrant (qdrant's local-file mode serializes ops, was causing health spikes during upsert); split to new `/api/health/qdrant` route
+
+### Verified
+Backend testing agent (iteration_4) — 13/13 passed, 0 critical, 0 minor. During concurrent ingestion of a 134-chunk doc:
+- `/api/health` median 106ms / max 135ms (was hanging)
+- `/api/auth/login` median 326ms / max 341ms (was hanging)
+- 0 errors over 10 concurrent iterations
+Regression test baseline: `/app/backend/tests/test_ehs_rag_iteration4.py`
