@@ -72,5 +72,7 @@ ENV PYTHONUNBUFFERED=1 \
 EXPOSE 8001
 WORKDIR /app/backend
 
-# Railway sets $PORT; bind there. Single worker since fastembed/Qdrant aren't fork-safe.
-CMD ["sh", "-c", "uvicorn server:app --host 0.0.0.0 --port ${PORT:-8001} --workers 1 --timeout-keep-alive 75"]
+# Railway sets $PORT; bind there. The volume at /data replaces build-time
+# contents on mount, so we create the required subdirs at runtime before
+# uvicorn starts. Single worker since fastembed/Qdrant aren't fork-safe.
+CMD ["sh", "-c", "mkdir -p /data/uploads /data/qdrant /data/hf_cache && exec uvicorn server:app --host 0.0.0.0 --port ${PORT:-8001} --workers 1 --timeout-keep-alive 75"]
