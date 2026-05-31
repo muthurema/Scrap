@@ -1,0 +1,46 @@
+{
+  "summary": "Iteration 5 backend testing — 12/12 iter5 tests PASSED + 13/13 iter4 regression PASSED (1 pre-existing skip). All four P0/P1 production fixes verified: (1) SSE 2KB comment pad arrives in first chunk (first-byte <1s after CF; 2050-byte pad confirmed); (2) keepalive `:ping` comments flow; (3) full session→sources→token→done event flow intact; (4) POST /api/admin/qdrant/reset enforces all 3 guardrails (confirm=true required, collection allowlist, superadmin-only — 400/400/403/401); (5) BATCH=16 large-doc path ingests 100+ chunks cleanly with no processing_error; (6) ingest+chat end-to-end after `del file_bytes; gc.collect()` works. No backend regressions vs iter4 baseline.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/chat/stream", "issue": "X-Accel-Buffering=no header is set in code but stripped by Cloudflare before reaching client. Not a code bug — header is for upstream proxies (nginx/Envoy) which see it via internal hops. The functional defeat (2KB SSE comment pad in first chunk) is what actually disables buffering for clients; verified working. No action needed."},
+      {"endpoint": "/api/documents/upload (POST form `source` field)", "issue": "Form data `source=\"superadmin\"` was overridden to `source=\"base_corpus\"` on stored doc when uploaded by a superadmin user. This means superadmin uploads route to the base_knowledge collection regardless of the form value. Not a regression from this iteration, but worth confirming this is intentional — the qdrant/reset endpoint's docs-invalidation filter depends on this mapping (base collection ↔ source='base_corpus', company collection ↔ source!='base_corpus')."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_ehs_rag_iteration5.py",
+    "/app/backend/tests/test_ehs_rag_iteration4.py",
+    "/app/test_reports/pytest/pytest_iteration5.xml",
+    "/app/test_reports/pytest/pytest_iteration4_regression.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Good: chat_routes.py event_gen yields a 2052-byte `:` comment frame as the very first SSE write — verified pad ≥ 2048 spaces, first-byte < 5s through Cloudflare (test reported ~30-500ms on local re-runs).",
+    "Good: keepalive_pings task runs in parallel with the RAG stream via a shared asyncio.Queue + SENTINEL pattern; cancellation/await semantics in the `finally` block are correct (ping_stop.set + cancel + suppressed CancelledError).",
+    "Good: admin_routes.qdrant/reset uses asyncio.to_thread for the blocking qdrant delete+create calls — won't block the event loop during reset.",
+    "Good: qdrant/reset guardrails are tight: 400 without confirm, 400 on bad collection name (allowlist of two), 403 for non-superadmin (require_superadmin dependency), 401 without auth.",
+    "Good: vector_store BATCH=16 with gc.collect() + del intermediate buffers — 100+ chunk doc ingests cleanly (~30s end-to-end), no processing_error, chunk_count >= 100. Tested with 400 unique sections (UUID-tokenised to avoid dedup).",
+    "Good: After qdrant reset, /api/health/qdrant continues to return healthy — recreate path works.",
+    "Good: iter4 P0 event-loop responsiveness regression remains intact (test_event_loop_responsive_during_ingestion passes — health & login under 2s during concurrent ingestion).",
+    "Minor: Consider exposing the 2KB pad size as a module-level constant in chat_routes.py for clarity / future tuning.",
+    "Minor: The qdrant/reset `documents_invalidated` count returns motor's modified_count which can read 0 even when matched_count > 0 (if all matched docs already had the new values). Consider returning matched_count, or returning both for observability."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_ehs_rag_iteration5.py (created — 12 tests covering SSE pad + keepalive + event flow, qdrant reset guardrails (4 negative + 1 happy path), BATCH=16 large-doc ingestion, ingest+chat regression, health endpoints)"
+  ],
+  "success_rate": {"backend": "100% (12/12 iter5 passed, 13/13 iter4 regression passed, 1 pre-existing skip)", "frontend": "not tested (backend-only request)"},
+  "test_credentials": "admin@ehsrag.com / Admin@12345 (superadmin); acmeworker@test.com / Worker@12345 (regular user, used for 403 check on /api/admin/qdrant/reset)",
+  "seed_data_creation": "Test docs (iter5_batch16_*, iter5_chat_*) auto-cleaned via test bodies. The valid qdrant reset test now operates on ehs_company_docs and does NOT wipe base corpus — base knowledge stays intact for chat tests.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter5 baseline at /app/backend/tests/test_ehs_rag_iteration5.py covers: SSE 2KB pad (first-chunk check; do NOT assert on X-Accel-Buffering response header — CF strips it), `:ping` keepalive comment frames, full session/sources/token/done event flow, qdrant/reset guardrails (confirm=true / allowlist / 403 non-superadmin / 401 no-auth), BATCH=16 large-doc (100+ chunks), ingest+chat end-to-end. The valid qdrant reset test uses ehs_company_docs (not base_knowledge) so base corpus stays intact. Open observation: superadmin file uploads land with source='base_corpus' regardless of the form `source` field — qdrant/reset doc-invalidation filter relies on this mapping; if main agent ever changes upload routing, the reset doc_filter mapping in admin_routes.py:190-193 must change too.",
+  "rca_of_the_issue": {
+    "original_p0_production_bug": "Chat answers never appeared in production. Three contributing root causes: (1) SSE response start was being buffered by Railway/Cloudflare/Envoy proxies until ~2KB of body data accumulated, delaying first-byte indefinitely for short streams; (2) Qdrant local on-disk index had become corrupted in ehs_base_knowledge ('operands could not be broadcast together') after Railway OOM-killed an in-flight ingestion; (3) Per-doc memory footprint during ingestion (BATCH=64 upsert + 300MB raw file bytes held in scope) was driving the Railway pod OOM that caused (2).",
+    "fixes_validated_this_iteration": "(1) chat_routes.py event_gen first yield is now `:` + 2048 spaces + \\n\\n — first SSE frame is a comment pad that flushes proxy buffers immediately. Plus a parallel keepalive task emits `:ping\\n\\n` every 2s to keep TCP/proxies happy. Confirmed via raw chunk inspection through Cloudflare. (2) New POST /api/admin/qdrant/reset?collection=<name>&confirm=true (superadmin-only) provides a safe operator path to wipe & recreate a corrupted Qdrant collection, then marks affected Mongo docs as not-processed so the UI prompts re-upload. All 3 guardrails verified. (3) vector_store.upsert_chunks BATCH 64→16 with explicit gc.collect() every 8 batches + del of intermediate buffers, and document_routes._process_document_bg now `del file_bytes; gc.collect()` after ingest. 100+ chunk doc still ingests cleanly. No event-loop regression vs iter4 baseline."
+  }
+}

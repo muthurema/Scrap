@@ -189,6 +189,7 @@ class IngestionService:
         # loop freezes ALL other endpoints (login, /api/health, chat). We
         # offload to a worker thread so the loop stays responsive.
         import asyncio
+        import gc
 
         def _sync_parse_and_chunk():
             raw_text = parse_document(file_bytes, file_ext)
@@ -206,9 +207,16 @@ class IngestionService:
                 text=raw_text, doc_type=local_doc_type, doc_id=doc_id,
                 title=title, source=source, extra_metadata=extra_metadata,
             )
-            return raw_text, findings, local_doc_type, local_chunks
+            # raw_text is no longer needed once chunks are created — release
+            # it inside the worker thread so peak RSS stays low on Railway.
+            del raw_text
+            return findings, local_doc_type, local_chunks
 
-        raw_text, injection_findings, resolved_doc_type, chunks = await asyncio.to_thread(_sync_parse_and_chunk)
+        injection_findings, resolved_doc_type, chunks = await asyncio.to_thread(_sync_parse_and_chunk)
+        # Caller's `file_bytes` reference still pins the original 300MB PDF
+        # in memory. We can't free their local var, but a gc.collect()
+        # here reclaims everything that's already dead (parser intermediates).
+        gc.collect()
 
         if injection_findings:
             logger.warning(
@@ -225,9 +233,14 @@ class IngestionService:
             if source in (DocumentSource.SUPERADMIN, DocumentSource.TURNSTILE_DMS, DocumentSource.CLIENT_WEB)
             else settings.qdrant_collection_base
         )
+        chunk_count = len(chunks)
         await self.vector_store.upsert_chunks(collection, chunks)
-        logger.info(f"Ingested {len(chunks)} chunks for doc {doc_id} → {collection}")
-        return len(chunks), injection_findings
+        # Release the chunks list once upsert is done; the BATCH path inside
+        # upsert_chunks already streams them, but this clears Python refs.
+        chunks.clear()
+        gc.collect()
+        logger.info(f"Ingested {chunk_count} chunks for doc {doc_id} → {collection}")
+        return chunk_count, injection_findings
 
     async def delete_document(self, doc_id: str) -> None:
         for coll in (settings.qdrant_collection_company, settings.qdrant_collection_base):

@@ -61,9 +61,7 @@ async def list_companies(current_user: dict = Depends(require_superadmin)):
 @router.get("/stats", response_model=SystemStatsOut)
 async def stats(current_user: dict = Depends(require_superadmin)):
     from app.vector_store import get_vector_store
-    from app.config import get_settings
     from app.routes.feedback_routes import feedback_col
-    settings = get_settings()
 
     total_docs = await documents_col().count_documents({"superseded_by_id": None})
     company_docs = await documents_col().count_documents({"source": {"$in": ["superadmin", "turnstile_dms"]}, "superseded_by_id": None})
@@ -147,3 +145,86 @@ async def reseed_corpus(
                  "error_count": len(stats.get("errors", []))},
     )
     return {"ok": True, "force": force, **stats}
+
+
+@router.post("/qdrant/reset")
+async def reset_qdrant_collection(
+    request: Request,
+    collection: str,
+    confirm: bool = False,
+    current_user: dict = Depends(require_superadmin),
+):
+    """
+    Wipe + recreate a Qdrant collection. Use this to recover from index
+    corruption — symptom in logs:
+      "Dense/Sparse search in <coll> failed: operands could not be
+       broadcast together with shapes (N,) (M,)"
+    This usually happens when a background ingestion was killed mid-write
+    (e.g. Railway OOM, container restart) and left the local on-disk
+    Qdrant payload in an inconsistent state.
+
+    Requires `confirm=true`. After reset, re-upload (or POST /admin/reseed-corpus
+    for the base corpus) so the collection is repopulated cleanly.
+
+    Allowed collection names: `ehs_base_knowledge`, `ehs_company_docs`.
+    """
+    from app.config import get_settings
+    from app.vector_store import get_vector_store, DENSE_NAME, SPARSE_NAME
+    from qdrant_client.models import (
+        Distance, VectorParams, SparseVectorParams, SparseIndexParams,
+    )
+    import asyncio
+
+    settings = get_settings()
+    allowed = {settings.qdrant_collection_base, settings.qdrant_collection_company}
+    if collection not in allowed:
+        raise HTTPException(400, f"collection must be one of {sorted(allowed)}")
+    if not confirm:
+        raise HTTPException(400, "Pass ?confirm=true to wipe & recreate the collection")
+
+    vs = get_vector_store()
+
+    # Best-effort: clear the Mongo `documents` flags so the UI doesn't show
+    # phantom indexed docs after the wipe. We only reset docs whose source
+    # routed them to THIS collection (base_corpus → base, others → company).
+    if collection == settings.qdrant_collection_base:
+        doc_filter = {"source": "base_corpus"}
+    else:
+        doc_filter = {"source": {"$ne": "base_corpus"}}
+    affected = await documents_col().update_many(
+        doc_filter,
+        {"$set": {"is_processed": False, "chunk_count": 0,
+                  "processing_error": "Collection reset — re-upload required",
+                  "processed_at": None}},
+    )
+
+    def _wipe_and_recreate():
+        # delete_collection is the cleanest way to remove on-disk state for
+        # qdrant local file mode. Then recreate with the same schema.
+        try:
+            vs.client.delete_collection(collection_name=collection)
+        except Exception as e:
+            # If the collection doesn't exist we still want to (re)create it
+            logger = __import__("loguru").logger
+            logger.warning(f"delete_collection {collection} skipped: {e}")
+        vs.client.create_collection(
+            collection_name=collection,
+            vectors_config={DENSE_NAME: VectorParams(
+                size=settings.embedding_dimensions, distance=Distance.COSINE,
+            )},
+            sparse_vectors_config={SPARSE_NAME: SparseVectorParams(index=SparseIndexParams())},
+        )
+
+    await asyncio.to_thread(_wipe_and_recreate)
+
+    await audit(
+        user=current_user, action="qdrant_reset", resource_type="qdrant_collection",
+        resource_id=collection, request=request,
+        details={"documents_invalidated": affected.modified_count},
+    )
+    return {
+        "ok": True, "collection": collection,
+        "documents_invalidated": affected.modified_count,
+        "note": "Collection wiped & recreated. Re-upload affected documents "
+                "(or POST /api/admin/reseed-corpus?force=true for base corpus).",
+    }

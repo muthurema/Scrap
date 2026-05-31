@@ -169,6 +169,8 @@ Just push to GitHub. Railway auto-builds and deploys on every push to `main`. Yo
 | `MONGO_URL` not set error on startup | Forgot step 3 | Add the variable, redeploy |
 | Uploads return 413 | A reverse-proxy in front of Railway (Cloudflare?) caps body size | Disable Cloudflare proxy (gray cloud) OR raise the limit in Cloudflare → Network → Max Upload Size |
 | Login returns "Invalid email or password" on first run | Seed didn't run | Run `python seed.py` via Railway shell |
+| Backend logs show `Dense/Sparse search ... operands could not be broadcast together with shapes (N,) (M,)` | Qdrant index corrupted by a killed (OOM, restart) ingestion mid-write | In the app: **Admin → Stats → "Reset Base Index"** (or "Reset Company Index") to wipe + recreate that collection, then re-upload docs (or run **Force Re-seed Corpus** for the base corpus). The chat will still respond meanwhile but with no retrieved sources from the broken collection. |
+| Chat answers appear all at once after a long pause instead of streaming token-by-token | Reverse-proxy (Railway/Cloudflare/Nginx) buffering the SSE response | Already handled in code: 2KB SSE pad on first chunk + `:ping` keepalive every 2 s + `X-Accel-Buffering: no` header. If still buffered, set Cloudflare → Network → "HTTP/3" **off** and ensure the orange cloud is **grey** for the backend hostname. |
 
 ---
 

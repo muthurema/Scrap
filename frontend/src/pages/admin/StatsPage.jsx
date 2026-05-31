@@ -60,6 +60,33 @@ export default function StatsPage() {
     }
   };
 
+  const resetQdrant = async (collection) => {
+    const label = collection === "ehs_base_knowledge" ? "base knowledge" : "company docs";
+    const msg = `Wipe and recreate the "${label}" Qdrant collection?\n\n` +
+      "Use this ONLY if you're seeing 'operands could not be broadcast' " +
+      "errors in the backend logs (index corruption from interrupted writes).\n\n" +
+      "All chunks in this collection will be deleted. You'll need to re-upload " +
+      "the documents (or use Force Re-seed for the base corpus).";
+    if (!confirm(msg)) return;
+    setReseedBusy(true);
+    const t = toast.loading(`Resetting ${label} collection…`);
+    try {
+      const { data } = await api.post(
+        `/admin/qdrant/reset?collection=${encodeURIComponent(collection)}&confirm=true`,
+      );
+      toast.dismiss(t);
+      toast.success(
+        `Collection wiped. ${data.documents_invalidated} document(s) marked for re-upload.`,
+      );
+      load();
+    } catch (e) {
+      toast.dismiss(t);
+      toast.error(e?.response?.data?.detail || "Qdrant reset failed");
+    } finally {
+      setReseedBusy(false);
+    }
+  };
+
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-7xl" data-testid="stats-page">
       <Header />
@@ -92,7 +119,7 @@ export default function StatsPage() {
           </div>
 
           <Section title="Knowledge Source Priority">
-            <CorpusHealth stats={stats} onReseed={reseed} busy={reseedBusy} />
+            <CorpusHealth stats={stats} onReseed={reseed} onResetQdrant={resetQdrant} busy={reseedBusy} />
             <div className="grid grid-cols-1 md:grid-cols-3 gap-px bg-slate-200 border border-slate-300 mt-4">
               {[
                 { label: "Company Uploads", boost: "1.5×", color: "bg-blue-600", desc: "Documents uploaded by superadmins" },
@@ -211,7 +238,7 @@ const ACTION_LABELS = {
   reseed_base_corpus: "Re-seed",
 };
 
-function CorpusHealth({ stats, onReseed, busy }) {
+function CorpusHealth({ stats, onReseed, onResetQdrant, busy }) {
   const chunks = stats?.total_chunks_embedded ?? 0;
   const baseDocs = stats?.base_corpus_count ?? 0;
   const empty = chunks === 0;
@@ -243,7 +270,7 @@ function CorpusHealth({ stats, onReseed, busy }) {
               </>}
         </div>
       </div>
-      <div className="flex gap-2 shrink-0">
+      <div className="flex flex-wrap gap-2 shrink-0">
         <Button
           onClick={() => onReseed(false)}
           disabled={busy}
@@ -264,6 +291,30 @@ function CorpusHealth({ stats, onReseed, busy }) {
           >
             Force
           </Button>
+        )}
+        {onResetQdrant && (
+          <>
+            <Button
+              onClick={() => onResetQdrant("ehs_base_knowledge")}
+              disabled={busy}
+              data-testid="qdrant-reset-base-btn"
+              variant="outline"
+              className="rounded-sm border-rose-400 text-rose-700 hover:bg-rose-50 h-9 font-mono uppercase text-[11px] tracking-wider"
+              title="Wipe & recreate the base-knowledge Qdrant collection (use if you see 'broadcast' errors in logs)"
+            >
+              Reset Base Index
+            </Button>
+            <Button
+              onClick={() => onResetQdrant("ehs_company_docs")}
+              disabled={busy}
+              data-testid="qdrant-reset-company-btn"
+              variant="outline"
+              className="rounded-sm border-rose-400 text-rose-700 hover:bg-rose-50 h-9 font-mono uppercase text-[11px] tracking-wider"
+              title="Wipe & recreate the company-docs Qdrant collection"
+            >
+              Reset Company Index
+            </Button>
+          </>
         )}
       </div>
     </div>

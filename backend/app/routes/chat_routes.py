@@ -1,4 +1,5 @@
 """Chat routes — non-streaming + SSE streaming (sources-first), with user profile awareness + SME corrections."""
+import asyncio
 import json
 import uuid
 from datetime import datetime, timezone
@@ -136,34 +137,83 @@ async def chat_stream(payload: ChatMessageIn, request: Request, current_user: di
                                 "followups": [], "high_risk": False}
 
     async def event_gen():
+        # Force Railway/Cloudflare/Envoy to flush headers + initial bytes
+        # immediately by padding with a comment line. SSE spec says lines
+        # starting with `:` are comments and ignored by the client.
+        # 2KB pad defeats most proxy buffer-until-2KB heuristics.
+        yield ":" + (" " * 2048) + "\n\n"
         yield f"event: session\ndata: {json.dumps({'session_id': session_id, 'message_id': assistant_msg_id})}\n\n"
+
+        # Keepalive ping every 2s — keeps the response from idling out at the
+        # proxy AND forces TCP to flush. Runs in parallel with the RAG stream.
+        ping_stop = asyncio.Event()
+
+        async def keepalive_pings(queue: asyncio.Queue):
+            try:
+                while not ping_stop.is_set():
+                    try:
+                        await asyncio.wait_for(ping_stop.wait(), timeout=2.0)
+                    except asyncio.TimeoutError:
+                        await queue.put(":ping\n\n")
+            except asyncio.CancelledError:
+                pass
+
+        # Merge keepalive pings + real stream events through a queue so each
+        # `yield` is a single coherent SSE frame.
+        queue: asyncio.Queue = asyncio.Queue()
+        SENTINEL = object()
+
+        async def produce_events():
+            try:
+                async for event in rag.stream(
+                    query=payload.content,
+                    session_id=session_id,
+                    history=history,
+                    company_id=current_user.get("company_id"),
+                    user_jurisdiction=user_juris,
+                    sme_corrections=sme_corrections,
+                    images_b64=images_b64 or None,
+                ):
+                    etype = event["type"]
+                    data = event.get("data")
+                    if etype == "sources":
+                        final_text_holder["sources"] = data
+                        final_text_holder["meta"] = event.get("retrieval_meta", {})
+                        final_text_holder["high_risk"] = event.get("retrieval_meta", {}).get("high_risk", False)
+                        await queue.put(f"event: sources\ndata: {json.dumps(data)}\n\n")
+                    elif etype == "token":
+                        await queue.put(f"event: token\ndata: {json.dumps(data)}\n\n")
+                    elif etype == "done":
+                        final_text_holder["text"] = data.get("final_text", "")
+                        final_text_holder["confidence_score"] = data.get("confidence_score")
+                        final_text_holder["followups"] = data.get("suggested_followups", [])
+                        await queue.put(f"event: done\ndata: {json.dumps(data)}\n\n")
+                    elif etype == "error":
+                        await queue.put(f"event: error\ndata: {json.dumps({'message': data})}\n\n")
+            finally:
+                await queue.put(SENTINEL)
+
+        producer = asyncio.create_task(produce_events())
+        pinger = asyncio.create_task(keepalive_pings(queue))
         try:
-            async for event in rag.stream(
-                query=payload.content,
-                session_id=session_id,
-                history=history,
-                company_id=current_user.get("company_id"),
-                user_jurisdiction=user_juris,
-                sme_corrections=sme_corrections,
-                images_b64=images_b64 or None,
-            ):
-                etype = event["type"]
-                data = event.get("data")
-                if etype == "sources":
-                    final_text_holder["sources"] = data
-                    final_text_holder["meta"] = event.get("retrieval_meta", {})
-                    final_text_holder["high_risk"] = event.get("retrieval_meta", {}).get("high_risk", False)
-                    yield f"event: sources\ndata: {json.dumps(data)}\n\n"
-                elif etype == "token":
-                    yield f"event: token\ndata: {json.dumps(data)}\n\n"
-                elif etype == "done":
-                    final_text_holder["text"] = data.get("final_text", "")
-                    final_text_holder["confidence_score"] = data.get("confidence_score")
-                    final_text_holder["followups"] = data.get("suggested_followups", [])
-                    yield f"event: done\ndata: {json.dumps(data)}\n\n"
-                elif etype == "error":
-                    yield f"event: error\ndata: {json.dumps({'message': data})}\n\n"
+            while True:
+                item = await queue.get()
+                if item is SENTINEL:
+                    break
+                yield item
         finally:
+            ping_stop.set()
+            pinger.cancel()
+            try:
+                await pinger
+            except (asyncio.CancelledError, Exception):
+                pass
+            if not producer.done():
+                producer.cancel()
+                try:
+                    await producer
+                except (asyncio.CancelledError, Exception):
+                    pass
             try:
                 await chat_messages_col().insert_many([
                     {"id": user_msg_id, "session_id": session_id, "role": "user",

@@ -66,9 +66,10 @@ class VectorStoreService:
 
         # Batch embedding + upsert to keep memory bounded and let the thread
         # pool round-robin other async tasks (login, /health, chat) between
-        # batches. Each batch is ~64 chunks; for a 1000-chunk PDF that's
-        # ~16 short threadpool tasks instead of one long 60s+ blocker.
-        BATCH = 64
+        # batches. Small batches keep RAM low on memory-tight hosts (Railway
+        # default tier is 512MB-1GB).
+        import gc
+        BATCH = 16
         total_upserted = 0
         for start in range(0, len(chunks), BATCH):
             batch = chunks[start:start + BATCH]
@@ -93,6 +94,11 @@ class VectorStoreService:
                 points=points,
             )
             total_upserted += len(points)
+            # Release intermediate buffers (dense vectors can be ~25KB each)
+            # before the next batch — keeps peak RSS low on Railway.
+            del dense_vectors, sparse_vectors, points, texts
+            if start % (BATCH * 8) == 0:
+                gc.collect()
             # Yield to the event loop between batches so other coroutines
             # (login, health, chat streaming) can interleave promptly.
             await asyncio.sleep(0)

@@ -54,6 +54,7 @@ def _read_file_sync(file_path: str) -> bytes:
 
 async def _process_document_bg(doc_id: str, file_path: str, file_ext: str):
     import asyncio
+    import gc
     ingestion = IngestionService(get_vector_store())
     try:
         doc = await documents_col().find_one({"id": doc_id})
@@ -74,6 +75,10 @@ async def _process_document_bg(doc_id: str, file_path: str, file_ext: str):
                 "expiry_date": doc.get("expiry_date") or "",
             },
         )
+        # Free the 300MB bytes buffer ASAP. On Railway's 1GB tier this is
+        # the difference between a clean ingestion and a Linux OOM kill.
+        del file_bytes
+        gc.collect()
         await documents_col().update_one(
             {"id": doc_id},
             {"$set": {
