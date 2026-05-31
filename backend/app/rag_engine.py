@@ -134,6 +134,47 @@ def _build_user_message(query: str, chunks: list[RetrievedChunk], user_jurisdict
 
 
 def _litellm_params(messages, stream: bool = False, max_tokens: int = 2048):
+    """
+    Build litellm acompletion kwargs.
+
+    Path A (preferred when ANTHROPIC_API_KEY is set): direct Anthropic API
+    with prompt caching enabled — the static system prompt is wrapped with
+    `cache_control: ephemeral` so cached input tokens are billed at 10%
+    and processed ~10x faster on subsequent requests.
+
+    Path B (fallback): Emergent universal-key proxy via OpenAI-compatible
+    chat completions. No caching, but works out-of-the-box with the
+    EMERGENT_LLM_KEY a user already has.
+    """
+    if settings.anthropic_api_key:
+        # Detect static system messages and convert them to Anthropic's
+        # content-block format so cache_control can be attached. Only the
+        # first system message is cached (it's the long static EHS prompt);
+        # any dynamic per-request context stays in the user message.
+        prepared = []
+        for m in messages:
+            if m["role"] == "system" and isinstance(m.get("content"), str):
+                prepared.append({
+                    "role": "system",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": m["content"],
+                            "cache_control": {"type": "ephemeral"},
+                        }
+                    ],
+                })
+            else:
+                prepared.append(m)
+        return {
+            "model": f"anthropic/{settings.anthropic_direct_model}",
+            "messages": prepared,
+            "api_key": settings.anthropic_api_key,
+            "max_tokens": max_tokens,
+            "stream": stream,
+            "extra_headers": {"anthropic-beta": "prompt-caching-2024-07-31"},
+        }
+
     proxy_url = get_integration_proxy_url()
     return {
         "model": settings.claude_model,

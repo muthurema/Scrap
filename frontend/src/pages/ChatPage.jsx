@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { createTypewriter } from "@/lib/typewriter";
 import { authStore } from "@/lib/auth-store";
 
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
 import { EmptyState } from "@/components/chat/EmptyState";
 import { MessageRow } from "@/components/chat/MessageRow";
@@ -26,8 +27,10 @@ export default function ChatPage() {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [activeSources, setActiveSources] = useState([]);
+  const [activeExternalCount, setActiveExternalCount] = useState(0);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [attachments, setAttachments] = useState([]); // [{name, dataUrl, size, mime}]
+  const [docPreview, setDocPreview] = useState(null); // {src, doc?: full document metadata}
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -90,6 +93,7 @@ export default function ChatPage() {
       setMessages(data);
       const last = [...data].reverse().find((m) => m.role === "assistant");
       setActiveSources(last?.sources || []);
+      setActiveExternalCount(last?.external_count || 0);
     } catch (e) {
       toast.error("Failed to load session");
     }
@@ -99,6 +103,7 @@ export default function ChatPage() {
     setCurrentSessionId(null);
     setMessages([]);
     setActiveSources([]);
+    setActiveExternalCount(0);
     setInput("");
     setMobileSidebarOpen(false);
   };
@@ -109,6 +114,7 @@ export default function ChatPage() {
     if ((!text && imagesToSend.length === 0) || sending) return;
     setSending(true);
     setActiveSources([]);
+    setActiveExternalCount(0);
 
     const tempUserId = "user-" + Date.now();
     let tempAsstId = "asst-" + Date.now();
@@ -183,9 +189,17 @@ export default function ChatPage() {
             tempAsstId = data.message_id;
           }
         } else if (eventType === "sources") {
-          setActiveSources(data);
+          // New payload shape: { sources: [...company-only...], external_count: N }
+          // Fall back to the legacy shape (just an array) for backward compat
+          // with any in-flight stream that started on the old backend.
+          const sourcesList = Array.isArray(data) ? data : (data?.sources || []);
+          const externalCount = Array.isArray(data) ? 0 : (data?.external_count || 0);
+          setActiveSources(sourcesList);
+          setActiveExternalCount(externalCount);
           setMessages((prev) => prev.map((m) =>
-            m.message_id === tempAsstId ? { ...m, sources: data } : m,
+            m.message_id === tempAsstId
+              ? { ...m, sources: sourcesList, external_count: externalCount }
+              : m,
           ));
         } else if (eventType === "token") {
           typewriter.append(typeof data === "string" ? data : String(data));
@@ -295,6 +309,7 @@ export default function ChatPage() {
       setMessages(data);
       const last = [...data].reverse().find((m) => m.role === "assistant");
       setActiveSources(last?.sources || []);
+      setActiveExternalCount(last?.external_count || 0);
       loadSessions();
       toast.success("Message deleted");
     } catch (e) {
@@ -329,6 +344,35 @@ export default function ChatPage() {
       toast.success(data.already ? "Already acknowledged" : "Acknowledgement recorded — entered in compliance audit trail");
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Couldn't record acknowledgement");
+    }
+  };
+
+  // Open a source pill → fetch full doc metadata and show a preview modal
+  // with a "Open original file" link that streams from the secure
+  // /documents/{id}/download endpoint.
+  const openDocPreview = async (src) => {
+    if (!src?.doc_id) return;
+    setDocPreview({ src, doc: null, loading: true });
+    try {
+      const { data } = await api.get(`/documents/${src.doc_id}`);
+      setDocPreview({ src, doc: data, loading: false });
+    } catch (e) {
+      setDocPreview({ src, doc: null, loading: false, error: e?.response?.data?.detail || "Couldn't load document" });
+    }
+  };
+
+  // Build a download URL that includes the bearer token via query param-free
+  // axios — we use the api instance so cookies/headers stay consistent. The
+  // user sees this as a normal hyperlink, but axios attaches auth on click.
+  const downloadDocBlob = async (docId, filename) => {
+    try {
+      const resp = await api.get(`/documents/${docId}/download`, { responseType: "blob" });
+      const url = URL.createObjectURL(resp.data);
+      window.open(url, "_blank", "noopener");
+      // Revoke after a delay to give the browser time to open it
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Download failed");
     }
   };
 
@@ -516,24 +560,104 @@ export default function ChatPage() {
             <div className="h-14 border-b border-slate-200 bg-white px-4 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Books size={16} className="text-slate-700" weight="bold" />
-                <div className="font-bold tracking-tight text-sm">RETRIEVED SOURCES</div>
+                <div className="font-bold tracking-tight text-sm">COMPANY SOURCES</div>
               </div>
               <div className="font-mono text-[10px] text-slate-500 uppercase tracking-wider">{activeSources.length}</div>
             </div>
             <ScrollArea className="flex-1">
               <div className="p-3 space-y-2">
                 {activeSources.length === 0 ? (
-                  <div className="text-xs text-slate-500 font-mono p-3">Sources will appear after you ask a question</div>
+                  <div className="text-xs text-slate-500 font-mono p-3 leading-relaxed">
+                    {activeExternalCount > 0
+                      ? <>This answer references external EHS guidance only — no internal company SOPs matched this query. <span className="text-slate-400">({activeExternalCount} external reference{activeExternalCount === 1 ? "" : "s"} used.)</span></>
+                      : "Sources will appear after you ask a question"}
+                  </div>
                 ) : (
-                  activeSources.map((s, i) => (
-                    <SourceCard key={s.doc_id ? `${s.doc_id}-${i}` : i} index={i + 1} src={s} />
-                  ))
+                  <>
+                    {activeSources.map((s, i) => (
+                      <SourceCard
+                        key={s.doc_id ? `${s.doc_id}-${i}` : i}
+                        index={i + 1}
+                        src={s}
+                        onOpen={() => openDocPreview(s)}
+                      />
+                    ))}
+                    {activeExternalCount > 0 && (
+                      <div
+                        className="text-[11px] text-slate-500 font-mono uppercase tracking-wider px-3 py-2 border border-dashed border-slate-300 bg-white"
+                        data-testid="external-references-note"
+                      >
+                        + {activeExternalCount} external reference{activeExternalCount === 1 ? "" : "s"} (ISO / OSHA / regulators)
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </ScrollArea>
           </aside>
         </div>
       </main>
+
+      <Dialog
+        open={!!docPreview}
+        onOpenChange={(o) => { if (!o) setDocPreview(null); }}
+      >
+        <DialogContent className="max-w-2xl" data-testid="source-preview-modal">
+          <DialogHeader>
+            <DialogTitle className="font-bold tracking-tight text-base pr-6">
+              {docPreview?.src?.title || "Source document"}
+            </DialogTitle>
+            <DialogDescription className="text-xs text-slate-500 font-mono uppercase tracking-wider pt-1">
+              {docPreview?.src?.doc_type} · similarity {((docPreview?.src?.similarity_score || 0) * 100).toFixed(0)}%
+              {docPreview?.doc?.original_filename ? ` · ${docPreview.doc.original_filename}` : ""}
+            </DialogDescription>
+          </DialogHeader>
+          {docPreview?.loading && (
+            <div className="text-xs text-slate-500 font-mono py-4">Loading document metadata…</div>
+          )}
+          {docPreview?.error && (
+            <div className="text-xs text-rose-700 font-mono py-3">{docPreview.error}</div>
+          )}
+          {docPreview?.src && (
+            <div className="space-y-3">
+              <div>
+                <div className="text-[10px] font-mono uppercase tracking-wider text-slate-500 mb-1.5">Retrieved excerpt</div>
+                <div className="text-sm text-slate-700 leading-relaxed bg-slate-50 border border-slate-200 p-3 max-h-64 overflow-y-auto whitespace-pre-wrap">
+                  {docPreview.src.chunk_text}
+                </div>
+              </div>
+              {docPreview?.doc && (
+                <div className="grid grid-cols-2 gap-3 text-xs">
+                  {docPreview.doc.jurisdiction && (
+                    <div><span className="text-slate-500 font-mono uppercase text-[10px] tracking-wider">Jurisdiction:</span> <span className="text-slate-900">{docPreview.doc.jurisdiction}</span></div>
+                  )}
+                  {docPreview.doc.expiry_date && (
+                    <div><span className="text-slate-500 font-mono uppercase text-[10px] tracking-wider">Expires:</span> <span className="text-slate-900">{new Date(docPreview.doc.expiry_date).toISOString().slice(0, 10)}</span></div>
+                  )}
+                  {docPreview.doc.version && (
+                    <div><span className="text-slate-500 font-mono uppercase text-[10px] tracking-wider">Version:</span> <span className="text-slate-900">{docPreview.doc.version}</span></div>
+                  )}
+                  {docPreview.doc.created_at && (
+                    <div><span className="text-slate-500 font-mono uppercase text-[10px] tracking-wider">Uploaded:</span> <span className="text-slate-900">{new Date(docPreview.doc.created_at).toISOString().slice(0, 10)}</span></div>
+                  )}
+                </div>
+              )}
+              {docPreview?.doc?.id && (
+                <div className="pt-2">
+                  <Button
+                    type="button"
+                    onClick={() => downloadDocBlob(docPreview.doc.id, docPreview.doc.original_filename)}
+                    className="rounded-sm bg-slate-900 hover:bg-slate-800 text-white h-9 font-semibold tracking-tight"
+                    data-testid="open-original-doc-btn"
+                  >
+                    Open original file
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

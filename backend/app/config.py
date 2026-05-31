@@ -168,6 +168,17 @@ class Settings:
         # on the raw-query results. Keeps p95 latency bounded.
         self.hyde_timeout_s = float(os.environ.get("HYDE_TIMEOUT_S", "2.5"))
 
+        # ── Optional direct Anthropic path (enables prompt caching) ──
+        # If ANTHROPIC_API_KEY is set we bypass the Emergent universal-key
+        # proxy and call Anthropic directly via litellm's native anthropic
+        # provider. This unlocks `cache_control` on the system prompt
+        # (~10x faster + 90% cheaper on cached input tokens). When unset,
+        # falls back to the existing Emergent proxy path automatically.
+        self.anthropic_api_key = os.environ.get("ANTHROPIC_API_KEY") or ""
+        self.anthropic_direct_model = os.environ.get(
+            "ANTHROPIC_DIRECT_MODEL", "claude-sonnet-4-5-20250929",
+        )
+
 
 @lru_cache()
 def get_settings() -> Settings:

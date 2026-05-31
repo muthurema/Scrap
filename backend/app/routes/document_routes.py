@@ -262,6 +262,64 @@ async def list_documents(
     return DocumentListResponse(items=[_doc_to_out(d) for d in docs], total=total)
 
 
+def _user_can_access_doc(user: dict, doc: dict) -> bool:
+    """Authorize a user to view/download a document.
+
+    Rules:
+    - Superadmin: everything
+    - Global / regional / platform-web docs (no company_id): any authenticated user
+    - Company-scoped docs: same company_id only
+    """
+    if user.get("role") == "superadmin":
+        return True
+    doc_company = doc.get("company_id")
+    if not doc_company:  # global / regional / platform-web
+        return True
+    return doc_company == user.get("company_id")
+
+
+@router.get("/{doc_id}", response_model=DocumentOut)
+async def get_document(doc_id: str, current_user: dict = Depends(get_current_user)):
+    """Single-doc metadata fetch — used by the chat source modal."""
+    doc = await documents_col().find_one({"id": doc_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(404, "Document not found")
+    if not _user_can_access_doc(current_user, doc):
+        raise HTTPException(403, "You don't have access to this document")
+    return _doc_to_out(doc)
+
+
+@router.get("/{doc_id}/download")
+async def download_document(doc_id: str, current_user: dict = Depends(get_current_user)):
+    """
+    Stream the original uploaded file back to the user. Used when a chat
+    source pill is clicked → opens the doc in a new tab.
+
+    Inline disposition so PDFs/images/text render in the browser; download
+    headers added for non-renderable types.
+    """
+    from pathlib import Path as _Path
+    from fastapi.responses import FileResponse
+
+    doc = await documents_col().find_one({"id": doc_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(404, "Document not found")
+    if not _user_can_access_doc(current_user, doc):
+        raise HTTPException(403, "You don't have access to this document")
+
+    file_path = doc.get("file_path")
+    if not file_path or not _Path(file_path).exists():
+        raise HTTPException(410, "Original file is no longer available on disk")
+
+    filename = doc.get("original_filename") or "document"
+    return FileResponse(
+        path=file_path,
+        filename=filename,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
 @router.delete("/{doc_id}", status_code=204)
 async def delete_document(doc_id: str, request: Request, current_user: dict = Depends(require_admin)):
     doc = await documents_col().find_one({"id": doc_id})

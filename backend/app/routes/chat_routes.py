@@ -177,10 +177,25 @@ async def chat_stream(payload: ChatMessageIn, request: Request, current_user: di
                     etype = event["type"]
                     data = event.get("data")
                     if etype == "sources":
+                        # The LLM still gets the full retrieved context
+                        # (global + regional + company) so answer quality
+                        # stays high — but the UI only shows the user
+                        # SOURCES THEY CAN ACT ON: i.e. their own company's
+                        # docs. Global/regional references are summarized
+                        # behind a single "+N external references" pill on
+                        # the frontend so the user can drill in if needed.
+                        company_sources = [s for s in (data or []) if s.get("tier") == "company"]
+                        external_count = len(data or []) - len(company_sources)
+                        # Persist the FULL list to Mongo (for audit) but
+                        # send only the filtered view down the wire.
                         final_text_holder["sources"] = data
                         final_text_holder["meta"] = event.get("retrieval_meta", {})
                         final_text_holder["high_risk"] = event.get("retrieval_meta", {}).get("high_risk", False)
-                        await queue.put(f"event: sources\ndata: {json.dumps(data)}\n\n")
+                        wire_payload = {
+                            "sources": company_sources,
+                            "external_count": external_count,
+                        }
+                        await queue.put(f"event: sources\ndata: {json.dumps(wire_payload)}\n\n")
                     elif etype == "token":
                         await queue.put(f"event: token\ndata: {json.dumps(data)}\n\n")
                     elif etype == "done":
