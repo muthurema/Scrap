@@ -214,11 +214,12 @@ async def upload_document(
 
 @router.get("/", response_model=DocumentListResponse)
 async def list_documents(
-    page: int = 1, page_size: int = 50,
+    page: int = 1, page_size: int = 500,
     doc_type: Optional[str] = None, source: Optional[str] = None,
     include_superseded: bool = False,
     current_user: dict = Depends(get_current_user),
 ):
+    page_size = max(1, min(page_size, 2000))
     query = {}
     company_id = current_user.get("company_id")
     if company_id and current_user.get("role") != "superadmin":

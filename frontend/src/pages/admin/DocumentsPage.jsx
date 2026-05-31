@@ -27,6 +27,7 @@ const JURISDICTIONS = ["", "US", "UK", "EU", "AU", "IN", "CA", "GLOBAL"];
 
 export default function DocumentsPage() {
   const [docs, setDocs] = useState([]);
+  const [totalDocs, setTotalDocs] = useState(0);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const fileRef = useRef(null);
@@ -43,8 +44,9 @@ export default function DocumentsPage() {
 
   const load = async () => {
     try {
-      const { data } = await api.get("/documents/");
+      const { data } = await api.get("/documents/?page_size=2000");
       setDocs(data.items);
+      setTotalDocs(data.total ?? data.items.length);
     } catch (e) {
       console.error(e);
     } finally {
@@ -378,6 +380,14 @@ export default function DocumentsPage() {
         </Dialog>
       </div>
 
+      <div className="mb-2 flex items-center gap-3 text-xs font-mono uppercase tracking-wider text-slate-500" data-testid="docs-count">
+        Showing <span className="text-slate-900 font-bold">{docs.length}</span> of <span className="text-slate-900 font-bold">{totalDocs}</span> documents
+        {totalDocs > docs.length && (
+          <span className="text-amber-700 normal-case lowercase tracking-normal">
+            · {totalDocs - docs.length} more available — page size capped at 2000
+          </span>
+        )}
+      </div>
       <div className="border border-slate-300 bg-white overflow-hidden">
         <div className="overflow-x-auto">
         <table className="w-full text-sm min-w-[760px]">
