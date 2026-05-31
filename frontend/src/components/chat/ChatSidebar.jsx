@@ -111,7 +111,7 @@ export function ChatSidebar({
         </ScrollArea>
 
         <div className="border-t border-slate-200 p-3 space-y-1">
-          {user?.role === "superadmin" && (
+          {(user?.role === "superadmin" || user?.role === "admin") && (
             <button
               onClick={() => navigate("/admin/stats")}
               data-testid="goto-admin-btn"

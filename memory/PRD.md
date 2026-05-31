@@ -198,14 +198,53 @@ EHS (Environment, Health & Safety) RAG chatbot for Turnstile360 — adapted from
 - PWA / offline mode
 - Incident-report integration with Turnstile360 (deferred until API spec)
 
-### Pending — RBAC overhaul (next session, Phase B)
-- New `admin` role (org head) — uploads org docs + URLs, scoped to their company
-- `superadmin` retains base-corpus + global view; `user` chat-only, must belong to a company
-- Invite flow: both invite-code AND email-allowlist supported
-- Admin UI filtered by role
-- Sign-up requires invite-code or allowlisted email (unless first user)
+## v3.4 — RBAC + Multi-tenant Roles (Feb 2026, Phase B)
+
+### Implemented
+**Roles & hierarchy**
+- `superadmin` (app owner) — manages base corpus, all companies, all admins, global analytics
+- `admin` (org head) — uploads org-scoped docs + URLs, manages org users, sees org analytics
+- `user` (chat-only) — must belong to a company
+
+**Backend**
+- `app/auth.py` — new `require_admin` dependency + `generate_invite_code()` helper (8-char URL-safe)
+- `app/db.py` — new collections `invites`, `allowlist` with indexes
+- `app/schemas.py` — new models: `InviteCreate/Out`, `AllowlistAdd/Out`, `TeamMemberOut`; `UserCreate.invite_code`
+- `app/routes/team_routes.py` (new) — full CRUD for invite codes, email allowlist, team members, deactivate user
+- `app/routes/auth_routes.py` — register now gates by: (1) first user → superadmin; (2) invite code → role+company from code; (3) email allowlist match; (4) else 403
+- `app/routes/document_routes.py` — admins upload to their company; superadmin to base_corpus; cross-tenant delete/reprocess blocked
+- `app/routes/web_source_routes.py` — superadmin → platform scope, admin → client scope (their company), enforced server-side
+- `GET /api/auth/lookup-company?code=...` — public endpoint so the register form can preview "Joining Acme Industries as user"
+
+**Frontend**
+- New page `admin/CompaniesPage` (superadmin only) — create + list companies
+- New page `admin/TeamPage` (admin + superadmin) — tabs: Invite codes / Email allowlist / Members
+  - Create invite (role, company for super, max-uses, expiry)
+  - Just-created code shown in a copy-able green banner
+  - Revoke / copy / status badges
+  - Allowlist add/remove with role + company scope
+  - Members table with role badges + deactivate button (admins can't deactivate other admins)
+- `App.js` — admin routes accept `["superadmin", "admin"]`; Companies route nested with `["superadmin"]` guard; onboarding skipped for non-user roles
+- `AdminLayout.jsx` — nav items filtered per role
+- `ChatSidebar.jsx` — Admin Panel link shown to admin too
+- `LoginPage.jsx` — register form gains an **Invite code** input with live company-name preview (debounced lookup via /auth/lookup-company)
+
+### Verified (curl + browser)
+1. Superadmin → creates Acme Industries company ✓
+2. Superadmin → mints `admin` invite for Acme ✓
+3. Register `acmeadmin@test.com` with code → returns `role=admin`, `company_id=<acme>` ✓
+4. New admin logs in → lands on `/admin/stats` (no onboarding) ✓
+5. Admin mints `user` invite ✓
+6. Admin tries to mint `admin` invite → 403 ✓
+7. Register `acmeworker@test.com` with code → role=user ✓
+8. Register without invite or allowlist → 403 ✓
+9. Admin adds email to allowlist → register with that email → role=user, joined Acme ✓
+10. Regular user navigates to `/admin/*` → redirected to `/chat` (or `/onboarding` if needed) ✓
+11. Bad code in register form → red "not recognised"; valid code → green "Joining Acme Industries" ✓
 
 ## Backlog
+- Per-company analytics filtering (currently superadmin sees all; admin already filtered via `company_id` query in feedback/acks)
 - Voice I/O (Whisper STT + TTS)
-- Incident report integration with Turnstile360
+- Incident report integration with Turnstile360 (pending API spec)
 - SDS / chemical database integration (PubChem)
+- Diagnose production hang at rag.turnstile360.com (use Re-seed Corpus button after redeploy)

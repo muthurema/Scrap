@@ -3,17 +3,19 @@ import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/lib/auth-context";
 import {
   ChartBar, FileText, Globe, ArrowLeft, SignOut, User as UserIcon,
-  ChatCenteredDots, ChartLineUp, SealCheck, List, X as XIcon,
+  ChatCenteredDots, ChartLineUp, SealCheck, List, X as XIcon, UsersThree, Buildings,
 } from "@phosphor-icons/react";
 import { Logo } from "@/components/Logo";
 
-const NAV_ITEMS = [
-  { to: "/admin/stats", label: "Stats", icon: ChartBar, testid: "nav-stats" },
-  { to: "/admin/analytics", label: "Analytics", icon: ChartLineUp, testid: "nav-analytics" },
-  { to: "/admin/documents", label: "Documents", icon: FileText, testid: "nav-documents" },
-  { to: "/admin/web-sources", label: "Web Sources", icon: Globe, testid: "nav-web-sources" },
-  { to: "/admin/feedback", label: "Feedback Review", icon: ChatCenteredDots, testid: "nav-feedback" },
-  { to: "/admin/acknowledgements", label: "Acknowledgements", icon: SealCheck, testid: "nav-acknowledgements" },
+const ALL_NAV = [
+  { to: "/admin/stats", label: "Stats", icon: ChartBar, testid: "nav-stats", roles: ["superadmin", "admin"] },
+  { to: "/admin/analytics", label: "Analytics", icon: ChartLineUp, testid: "nav-analytics", roles: ["superadmin", "admin"] },
+  { to: "/admin/documents", label: "Documents", icon: FileText, testid: "nav-documents", roles: ["superadmin", "admin"] },
+  { to: "/admin/web-sources", label: "Web Sources", icon: Globe, testid: "nav-web-sources", roles: ["superadmin", "admin"] },
+  { to: "/admin/feedback", label: "Feedback Review", icon: ChatCenteredDots, testid: "nav-feedback", roles: ["superadmin", "admin"] },
+  { to: "/admin/acknowledgements", label: "Acknowledgements", icon: SealCheck, testid: "nav-acknowledgements", roles: ["superadmin", "admin"] },
+  { to: "/admin/team", label: "Team", icon: UsersThree, testid: "nav-team", roles: ["superadmin", "admin"] },
+  { to: "/admin/companies", label: "Companies", icon: Buildings, testid: "nav-companies", roles: ["superadmin"] },
 ];
 
 export default function AdminLayout() {
@@ -22,7 +24,8 @@ export default function AdminLayout() {
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  const currentLabel = NAV_ITEMS.find((n) => location.pathname.startsWith(n.to))?.label || "Admin";
+  const navItems = ALL_NAV.filter((n) => n.roles.includes(user?.role));
+  const currentLabel = navItems.find((n) => location.pathname.startsWith(n.to))?.label || "Admin";
 
   return (
     <div className="h-[100dvh] flex bg-slate-50 text-slate-900 overflow-hidden">
@@ -62,7 +65,7 @@ export default function AdminLayout() {
         </div>
 
         <nav className="p-2 flex-1 overflow-y-auto">
-          {NAV_ITEMS.map((it) => (
+          {navItems.map((it) => (
             <NavLink
               key={it.to}
               to={it.to}

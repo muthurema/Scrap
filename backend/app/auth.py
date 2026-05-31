@@ -59,5 +59,19 @@ async def require_superadmin(current_user: dict = Depends(get_current_user)) -> 
     return current_user
 
 
+async def require_admin(current_user: dict = Depends(get_current_user)) -> dict:
+    """Allows either `admin` (org head) or `superadmin` (app owner)."""
+    if current_user.get("role") not in ("admin", "superadmin"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return current_user
+
+
 def generate_id() -> str:
     return str(uuid.uuid4())
+
+
+def generate_invite_code() -> str:
+    """Short shareable code — 8 chars from a non-ambiguous alphabet."""
+    import secrets
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # no 0/O/1/I to reduce typos
+    return "".join(secrets.choice(alphabet) for _ in range(8))

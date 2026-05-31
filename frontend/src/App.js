@@ -11,13 +11,16 @@ import StatsPage from "@/pages/admin/StatsPage";
 import AnalyticsPage from "@/pages/admin/AnalyticsPage";
 import FeedbackQueuePage from "@/pages/admin/FeedbackQueuePage";
 import AcknowledgementsPage from "@/pages/admin/AcknowledgementsPage";
+import TeamPage from "@/pages/admin/TeamPage";
+import CompaniesPage from "@/pages/admin/CompaniesPage";
 import "@/App.css";
 
 function RequireAuth({ children, roles }) {
   const { user } = useAuth();
   if (!user) return <Navigate to="/login" replace />;
   if (roles && !roles.includes(user.role)) return <Navigate to="/chat" replace />;
-  if (user.needs_onboarding) return <Navigate to="/onboarding" replace />;
+  // Onboarding is for field users only — admins/superadmin go straight in
+  if (user.needs_onboarding && user.role === "user") return <Navigate to="/onboarding" replace />;
   return children;
 }
 
@@ -35,7 +38,7 @@ function App() {
           />
           <Route
             path="/admin"
-            element={<RequireAuth roles={["superadmin"]}><AdminLayout /></RequireAuth>}
+            element={<RequireAuth roles={["superadmin", "admin"]}><AdminLayout /></RequireAuth>}
           >
             <Route index element={<Navigate to="stats" replace />} />
             <Route path="stats" element={<StatsPage />} />
@@ -44,6 +47,8 @@ function App() {
             <Route path="web-sources" element={<WebSourcesPage />} />
             <Route path="feedback" element={<FeedbackQueuePage />} />
             <Route path="acknowledgements" element={<AcknowledgementsPage />} />
+            <Route path="team" element={<TeamPage />} />
+            <Route path="companies" element={<RequireAuth roles={["superadmin"]}><CompaniesPage /></RequireAuth>} />
           </Route>
           <Route path="*" element={<Navigate to="/chat" replace />} />
         </Routes>

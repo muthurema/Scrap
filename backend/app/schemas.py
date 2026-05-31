@@ -16,6 +16,7 @@ class UserCreate(BaseModel):
     full_name: Optional[str] = None
     role: str = "user"
     company_id: Optional[str] = None
+    invite_code: Optional[str] = Field(default=None, max_length=16)
 
 
 class UserLogin(BaseModel):
@@ -171,6 +172,56 @@ class SystemStatsOut(BaseModel):
     total_users: int = 0
     pending_feedback: int = 0
     expired_documents: int = 0
+
+
+# ── Team / Invites ────────────────────────────────────────────────────────────
+
+class InviteCreate(BaseModel):
+    role: str = Field(default="user", pattern="^(user|admin)$")
+    company_id: Optional[str] = None  # superadmin can override; admin's own company is forced
+    max_uses: int = Field(default=1, ge=1, le=500)
+    expires_in_days: int = Field(default=14, ge=1, le=180)
+
+
+class InviteOut(BaseModel):
+    id: str
+    code: str
+    role: str
+    company_id: Optional[str] = None
+    company_name: Optional[str] = None
+    max_uses: int
+    uses: int
+    is_active: bool
+    expires_at: datetime
+    created_at: datetime
+    created_by_email: Optional[str] = None
+
+
+class AllowlistAdd(BaseModel):
+    email: EmailStr
+    role: str = Field(default="user", pattern="^(user|admin)$")
+
+
+class AllowlistEntryOut(BaseModel):
+    id: str
+    email: str
+    role: str
+    company_id: str
+    company_name: Optional[str] = None
+    created_at: datetime
+    used_at: Optional[datetime] = None
+
+
+class TeamMemberOut(BaseModel):
+    id: str
+    email: str
+    full_name: Optional[str] = None
+    role: str
+    company_id: Optional[str] = None
+    site: Optional[str] = None
+    role_label: Optional[str] = None
+    is_active: bool = True
+    created_at: datetime
 
 
 # ── Analytics ─────────────────────────────────────────────────────────────────

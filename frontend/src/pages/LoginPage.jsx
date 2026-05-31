@@ -1,11 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/auth-context";
+import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { ArrowRight } from "@phosphor-icons/react";
+import { ArrowRight, CheckCircle, Ticket } from "@phosphor-icons/react";
 import { Logo } from "@/components/Logo";
 
 export default function LoginPage() {
@@ -15,7 +16,26 @@ export default function LoginPage() {
   const [email, setEmail] = useState("admin@ehsrag.com");
   const [password, setPassword] = useState("Admin@12345");
   const [fullName, setFullName] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
+  const [inviteInfo, setInviteInfo] = useState(null); // { valid, role, company_name }
   const [busy, setBusy] = useState(false);
+
+  // Lookup the company name as the user types the invite code (debounced)
+  useEffect(() => {
+    if (mode !== "register" || !inviteCode || inviteCode.length < 6) {
+      setInviteInfo(null);
+      return;
+    }
+    const t = setTimeout(async () => {
+      try {
+        const { data } = await api.get(`/auth/lookup-company?code=${encodeURIComponent(inviteCode.trim().toUpperCase())}`);
+        setInviteInfo(data);
+      } catch {
+        setInviteInfo({ valid: false });
+      }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [inviteCode, mode]);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -23,12 +43,15 @@ export default function LoginPage() {
     try {
       const user = mode === "login"
         ? await login(email, password)
-        : await register({ email, password, full_name: fullName, role: "user" });
+        : await register({
+            email, password, full_name: fullName, role: "user",
+            invite_code: inviteCode ? inviteCode.trim().toUpperCase() : undefined,
+          });
       toast.success(`Welcome, ${user.full_name || user.email}`);
-      if (user.needs_onboarding) {
+      if (user.needs_onboarding && user.role === "user") {
         navigate("/onboarding");
       } else {
-        navigate(user.role === "superadmin" ? "/admin/stats" : "/chat");
+        navigate(["superadmin", "admin"].includes(user.role) ? "/admin/stats" : "/chat");
       }
     } catch (err) {
       const detail = err?.response?.data?.detail;
@@ -107,23 +130,53 @@ export default function LoginPage() {
           <p className="text-slate-600 text-sm mb-8">
             {mode === "login"
               ? "Enter your credentials to access the EHS knowledge base."
-              : "Create a new account. The first registered user becomes superadmin."}
+              : "Have an invite code from your org admin? Drop it in below — otherwise your email must be allow-listed."}
           </p>
 
           <form onSubmit={submit} className="space-y-5">
             {mode === "register" && (
-              <div className="space-y-2">
-                <Label htmlFor="full-name" className="font-mono text-xs uppercase tracking-wider text-slate-700">Full name</Label>
-                <Input
-                  id="full-name"
-                  data-testid="register-fullname-input"
-                  type="text"
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  required
-                  className="rounded-sm border-slate-300 focus-visible:ring-blue-600"
-                />
-              </div>
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="full-name" className="font-mono text-xs uppercase tracking-wider text-slate-700">Full name</Label>
+                  <Input
+                    id="full-name"
+                    data-testid="register-fullname-input"
+                    type="text"
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    required
+                    className="rounded-sm border-slate-300 focus-visible:ring-blue-600"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="invite-code" className="font-mono text-xs uppercase tracking-wider text-slate-700">Invite code <span className="normal-case lowercase text-slate-400">(optional)</span></Label>
+                  <div className="relative">
+                    <Ticket size={14} weight="bold" className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <Input
+                      id="invite-code"
+                      data-testid="register-invite-input"
+                      type="text"
+                      value={inviteCode}
+                      onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+                      placeholder="ABCD1234"
+                      maxLength={16}
+                      autoComplete="off"
+                      className="rounded-sm border-slate-300 focus-visible:ring-blue-600 pl-9 font-mono tracking-widest"
+                    />
+                  </div>
+                  {inviteInfo && inviteInfo.valid && (
+                    <div className="flex items-center gap-2 text-xs text-emerald-700 font-medium" data-testid="invite-valid">
+                      <CheckCircle size={14} weight="fill" />
+                      Joining <span className="font-bold">{inviteInfo.company_name || "company"}</span> as <span className="font-bold">{inviteInfo.role}</span>
+                    </div>
+                  )}
+                  {inviteCode && inviteInfo && !inviteInfo.valid && (
+                    <div className="text-xs text-rose-700 font-medium" data-testid="invite-invalid">
+                      Code not recognised, expired, or fully used.
+                    </div>
+                  )}
+                </div>
+              </>
             )}
             <div className="space-y-2">
               <Label htmlFor="email" className="font-mono text-xs uppercase tracking-wider text-slate-700">Email</Label>

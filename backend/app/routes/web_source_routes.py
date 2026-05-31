@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.db import web_sources_col
 from app.schemas import WebSourceCreate, WebSourceOut, WebSourceScrapeResult
-from app.auth import get_current_user, require_superadmin
+from app.auth import get_current_user, require_superadmin, require_admin
 from app.config import DocumentType, DocumentSource, WebSourceScope
 from app.vector_store import get_vector_store
 from app.ingestion import IngestionService
@@ -79,9 +79,17 @@ def _can_manage(user: dict, source: dict) -> bool:
 
 
 @router.post("/", response_model=WebSourceOut, status_code=201)
-async def create_web_source(payload: WebSourceCreate, request: Request, current_user: dict = Depends(get_current_user)):
-    if payload.scope == WebSourceScope.PLATFORM and current_user.get("role") != "superadmin":
-        raise HTTPException(403, "Only superadmin can add platform-level web sources")
+async def create_web_source(payload: WebSourceCreate, request: Request, current_user: dict = Depends(require_admin)):
+    # Force scope by role: superadmin → platform, admin → client (their company)
+    role = current_user.get("role")
+    if role == "superadmin":
+        scope = WebSourceScope.PLATFORM
+        company_id = None
+    else:
+        if not current_user.get("company_id"):
+            raise HTTPException(400, "Admin must belong to a company")
+        scope = WebSourceScope.CLIENT
+        company_id = current_user["company_id"]
 
     safe, err = is_safe_url(str(payload.url))
     if not safe:
@@ -91,18 +99,12 @@ async def create_web_source(payload: WebSourceCreate, request: Request, current_
     if existing:
         raise HTTPException(409, f"URL already registered: {payload.url}")
 
-    company_id = payload.company_id
-    if payload.scope == WebSourceScope.CLIENT and not company_id:
-        company_id = current_user.get("company_id")
-    if payload.scope == WebSourceScope.PLATFORM:
-        company_id = None
-
     doc = {
         "id": str(uuid.uuid4()),
         "url": str(payload.url),
         "label": payload.label,
         "description": payload.description,
-        "scope": payload.scope.value,
+        "scope": scope.value,
         "company_id": company_id,
         "scrape_frequency": payload.scrape_frequency.value,
         "crawl_depth": payload.crawl_depth,

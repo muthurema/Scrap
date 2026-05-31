@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, B
 
 from app.db import documents_col
 from app.schemas import DocumentOut, DocumentListResponse
-from app.auth import get_current_user, require_superadmin
+from app.auth import get_current_user, require_superadmin, require_admin
 from app.config import get_settings, DocumentType, DocumentSource
 from app.vector_store import get_vector_store
 from app.ingestion import IngestionService
@@ -95,8 +95,20 @@ async def upload_document(
     expiry_date: Optional[str] = Form(None),
     supersedes_id: Optional[str] = Form(None),
     jurisdiction: Optional[str] = Form(None),
-    current_user: dict = Depends(require_superadmin),
+    current_user: dict = Depends(require_admin),
 ):
+    # RBAC: superadmin → base_corpus only. admin → company-scoped only.
+    if current_user.get("role") == "superadmin":
+        if source != DocumentSource.BASE_CORPUS.value:
+            source = DocumentSource.BASE_CORPUS.value
+        company_id_for_doc = None
+    else:
+        if not current_user.get("company_id"):
+            raise HTTPException(400, "Admin must belong to a company before uploading")
+        # Admins always upload to their own company; force the source.
+        source = DocumentSource.SUPERADMIN.value
+        company_id_for_doc = current_user["company_id"]
+
     ext = Path(file.filename).suffix.lower()
     if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(400, f"File type {ext} not supported. Allowed: {sorted(ALLOWED_EXTENSIONS)}")
@@ -136,7 +148,7 @@ async def upload_document(
     tag_list = [t.strip() for t in tags.split(",")] if tags else []
     doc = {
         "id": doc_id,
-        "company_id": current_user.get("company_id"),
+        "company_id": company_id_for_doc,
         "filename": safe_filename,
         "original_filename": file.filename,
         "file_path": str(file_path),
@@ -208,10 +220,14 @@ async def list_documents(
 
 
 @router.delete("/{doc_id}", status_code=204)
-async def delete_document(doc_id: str, request: Request, current_user: dict = Depends(require_superadmin)):
+async def delete_document(doc_id: str, request: Request, current_user: dict = Depends(require_admin)):
     doc = await documents_col().find_one({"id": doc_id})
     if not doc:
         raise HTTPException(404, "Document not found")
+    # Admins can only delete their own company's docs; base-corpus is superadmin-only
+    if current_user.get("role") != "superadmin":
+        if doc.get("source") == DocumentSource.BASE_CORPUS.value or doc.get("company_id") != current_user.get("company_id"):
+            raise HTTPException(403, "You can only delete documents for your own company")
 
     ingestion = IngestionService(get_vector_store())
     await ingestion.delete_document(doc_id)
@@ -231,11 +247,14 @@ async def delete_document(doc_id: str, request: Request, current_user: dict = De
 async def reprocess_document(
     doc_id: str, request: Request,
     background_tasks: BackgroundTasks,
-    current_user: dict = Depends(require_superadmin),
+    current_user: dict = Depends(require_admin),
 ):
     doc = await documents_col().find_one({"id": doc_id})
     if not doc:
         raise HTTPException(404, "Document not found")
+    if current_user.get("role") != "superadmin":
+        if doc.get("source") == DocumentSource.BASE_CORPUS.value or doc.get("company_id") != current_user.get("company_id"):
+            raise HTTPException(403, "You can only re-process documents for your own company")
     if not doc.get("file_path") or not Path(doc["file_path"]).exists():
         raise HTTPException(
             400,
