@@ -133,6 +133,11 @@ export default function ChatPage() {
     const token = authStore.getToken();
     const url = `${process.env.REACT_APP_BACKEND_URL || ""}/api/chat/stream`;
     let buffer = "";
+    // Track the session id locally — setCurrentSessionId is async so the
+    // closure below can't read the freshly-set state. The `session` SSE
+    // event sets this; we read it in `done` for the lazy followups call.
+    let liveSessionId = currentSessionId;
+    const currentSessionIdLocal = () => liveSessionId;
 
     const typewriter = createTypewriter({
       rate: 80, maxBurst: 5,
@@ -170,6 +175,7 @@ export default function ChatPage() {
         try { data = JSON.parse(dataStr); } catch { data = dataStr; }
         if (eventType === "session") {
           setCurrentSessionId(data.session_id);
+          liveSessionId = data.session_id;
           if (data.message_id) {
             setMessages((prev) => prev.map((m) =>
               m.message_id === tempAsstId ? { ...m, message_id: data.message_id } : m,
@@ -193,10 +199,30 @@ export default function ChatPage() {
                   confidence_score: data?.confidence_score ?? null,
                   is_high_risk: !!data?.is_high_risk,
                   suggested_followups: data?.suggested_followups || [],
+                  followups_pending: !!data?.followups_pending,
                   _streaming: false,
                 }
               : m,
           ));
+          // Lazy followups: kick off non-blockingly so the user can already
+          // read the answer. When the server responds (~5-10s) we patch the
+          // message in-place with the suggestions.
+          if (data?.followups_pending && currentSessionIdLocal()) {
+            const sid = currentSessionIdLocal();
+            const targetMsgId = tempAsstId;
+            api.post(`/chat/sessions/${sid}/followups`).then(({ data: fu }) => {
+              setMessages((prev) => prev.map((m) =>
+                m.message_id === targetMsgId
+                  ? { ...m, suggested_followups: fu?.followups || [], followups_pending: false }
+                  : m,
+              ));
+            }).catch(() => {
+              // Silent fail — followups are a nice-to-have
+              setMessages((prev) => prev.map((m) =>
+                m.message_id === targetMsgId ? { ...m, followups_pending: false } : m,
+              ));
+            });
+          }
         } else if (eventType === "error") {
           throw new Error(data?.message || "Stream error");
         }

@@ -365,3 +365,47 @@ async def delete_message(message_id: str, request: Request, current_user: dict =
                 resource_id=message_id, request=request,
                 details={"deleted_count": res.deleted_count, "session_id": session_id})
     return {"deleted": res.deleted_count}
+
+
+@router.post("/sessions/{session_id}/followups")
+async def generate_followups(
+    session_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Lazy follow-up generator. Called by the frontend AFTER the /chat/stream
+    `done` event so the user sees the answer immediately. Cached on the
+    assistant message so the call is idempotent. Returns within ~5-10s
+    (Claude latency) but the user is already reading the answer.
+    """
+    session = await chat_sessions_col().find_one(
+        {"id": session_id, "user_id": current_user["sub"]}, {"_id": 0, "id": 1},
+    )
+    if not session:
+        raise HTTPException(404, "Session not found")
+
+    # Find the most recent Q→A pair
+    msgs = await chat_messages_col().find(
+        {"session_id": session_id}, {"_id": 0},
+    ).sort("created_at", -1).limit(2).to_list(2)
+    if len(msgs) < 2:
+        return {"followups": []}
+    assistant_msg, user_msg = msgs[0], msgs[1]
+    if assistant_msg.get("role") != "assistant" or user_msg.get("role") != "user":
+        return {"followups": []}
+
+    # Idempotent: return cached if already generated
+    cached = assistant_msg.get("suggested_followups") or []
+    if cached:
+        return {"followups": cached, "cached": True}
+
+    rag = RAGEngine(get_vector_store())
+    followups = await rag.suggest_followups(
+        query=user_msg.get("content", ""),
+        answer=assistant_msg.get("content", ""),
+    )
+    await chat_messages_col().update_one(
+        {"id": assistant_msg["id"]},
+        {"$set": {"suggested_followups": followups}},
+    )
+    return {"followups": followups, "cached": False}

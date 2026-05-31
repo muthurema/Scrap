@@ -1,0 +1,50 @@
+{
+  "summary": "Iteration 6 backend testing — 14/14 iter6 tests PASSED + 12/12 iter5 regression PASSED. Verified: (1) Latency P0 — `sources` SSE event arrives well under the 8s budget via parallel HyDE (asyncio.gather of raw + rewritten search) and `done` event no longer waits for the followups LLM call (carries `followups_pending=true` and `suggested_followups=[]`); (2) Lazy followups endpoint POST /api/chat/sessions/{id}/followups returns a list on 1st call, cached=true with identical list on 2nd call (sub-second), 404 on unknown session, and 404 on another user's session (route filters by user_id); (3) Embedding LRU cache — repeated identical query streams cleanly twice with no errors; (4) `tier` field present on every SourceReference (chunks_to_sources stamps it from payload or infers from source); (5) `DocumentSource.REGIONAL_BASE` accepted by /api/documents/upload without 400; (6) Narrow query path with ≤3 candidates does not raise (rerank-skip code path); (7) Full SSE event flow (session→sources→token→done) and CORS preflight intact. seed_global_sources.py importable from /app/backend with GLOBAL_SOURCES length == 19.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "/api/documents/upload",
+        "issue": "Persistent route behaviour from iter5: superadmin uploads are FORCE-mapped to source=base_corpus regardless of the posted `source` form value. This means there is currently NO supported caller path to actually create a doc with source=regional_base — the enum is accepted by the upload form parser but is silently overridden to base_corpus, so resulting chunks land in the base collection with tier=global. Admin role gets force-mapped to source=superadmin (→ tier=company in chunks). Pin tests document this current behaviour. If the diagram-parity 3-tier architecture is meant to be usable end-to-end, the route needs a new role or an explicit superadmin opt-in to keep source=regional_base."
+      },
+      {
+        "endpoint": "POST /api/chat/sessions/{id}/followups",
+        "issue": "Cross-tenant access returns 404 (because the Mongo find is filtered by `user_id`) rather than 403 — semantically fine (avoids enumeration) but inconsistent with the problem-statement wording which suggested 403. Both 403 and 404 are accepted in the test; behaviour is safe."
+      }
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_ehs_rag_iteration6.py",
+    "/app/backend/tests/test_ehs_rag_iteration5.py",
+    "/app/test_reports/pytest/pytest_iteration6.xml",
+    "/app/test_reports/pytest/pytest_iteration5_regression.xml"
+  ],
+  "action_items": [
+    "Decide whether REGIONAL_BASE should actually be reachable via /api/documents/upload. Today the route force-overrides any superadmin-posted source to `base_corpus` (document_routes.py:114-117), so the new REGIONAL tier in the 3-tier model has no ingestion path through this endpoint. Either (a) allow superadmin to pass through source∈{base_corpus, regional_base, platform_web} explicitly, or (b) wire regional ingestion through a different path (web_source_routes / seed_global_sources extension) and remove REGIONAL_BASE from the upload form's allowed values to avoid confusion.",
+    "Consider returning 403 (not 404) from POST /api/chat/sessions/{id}/followups when the session exists but belongs to another user — current code does a combined `{id, user_id}` find so it always 404s. Today it is safe (no enumeration), but inconsistent with the iter6 spec wording."
+  ],
+  "critical_code_review_comments": [
+    "Good: rag_engine.retrieve() does asyncio.gather(raw_search, _hyde_then_search()) with a per-call asyncio.wait_for(timeout=settings.hyde_timeout_s, default 2.5s) — measured sources event well under 8s budget. HyDE timeout fallback path verified does not raise; meta['hyde_timeout']=True can be set on timeout (currently not visible to client unless retrieval_meta exposed in stream).",
+    "Good: rag_engine.stream() emits `done` immediately after the token loop with suggested_followups=[] and followups_pending=True. No 5-10s tail.",
+    "Good: chat_routes /sessions/{id}/followups is idempotent — re-fetches the last user/assistant pair, returns cached list if already persisted on the message, otherwise calls rag.suggest_followups and persists.",
+    "Good: chunks_to_sources stamps `tier` from chunk payload, falling back to _infer_tier_from_source for legacy chunks → backward-compatible.",
+    "Good: ingestion.chunk_text() stamps tier (via SOURCE_TO_TIER mapping) and freshness_ts (ISO UTC) on every chunk payload.",
+    "Good: embeddings._LRUCache normalises key via lowercased+collapsed-whitespace SHA256 so trivially different cases share a slot; capacity=1000 × 384 floats ≈ 1.5MB is fine.",
+    "Bug/Gap: REGIONAL_BASE enum value is unreachable via the upload route (see action_items #1). Either enable an admin role that can keep source=regional_base or remove the value from the upload Form() field. Today this is a usability cliff for the 3-tier story.",
+    "Minor: rag_engine.retrieve() applies tier boost (company 1.20×, regional 1.05×, global 1.0×) BEFORE the jurisdiction boost (×1.15 / ×0.85). Compounded, a company+matching-jurisdiction chunk gets 1.20×1.15=1.38× while a global+other-jurisdiction chunk gets 0.85×. That gap may be larger than intended on edge cases; consider clamping or applying only one of the boosts when both fire.",
+    "Minor: chat_routes followups endpoint uses chat_messages_col().find(...).sort('created_at', -1).limit(2) — relies on created_at lexicographic ordering. Works because _now_iso() returns ISO timestamps, but if any code path ever writes a different shape this becomes silently wrong. Consider sorting by an integer monotonic field or by _id.",
+    "Minor: meta['rerank_skipped'] is set inside retrieve() but is not surfaced through the stream's `sources` event (retrieval_meta is only carried on the sources event payload via chat_routes line 181). If observability of skip-rerank is desired, expose it.",
+    "Minor: rag_engine.retrieve()'s _hyde_then_search returns [] on TimeoutError but does NOT cancel the in-flight task — relies on the wait_for cancellation. Verified working but worth a comment."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_ehs_rag_iteration6.py (new — 14 tests covering latency P0, lazy followups happy/404/cross-user, embedding cache warm path, tier field, REGIONAL_BASE acceptance + pin of override behaviour, narrow-query rerank-skip, seed import shape, full-SSE + CORS regression)"
+  ],
+  "success_rate": {"backend": "100% (14/14 iter6 + 12/12 iter5 regression)", "frontend": "not tested (backend-only request)"},
+  "test_credentials": "admin@ehsrag.com / Admin@12345 (superadmin); acmeworker@test.com / Worker@12345 (regular user, used for cross-tenant followups access check)",
+  "seed_data_creation": "iter6 tests upload 3 small probe docs (iter6_global_*, iter6_super_*, iter6_reg_*); each is deleted by the test body after assertions. No persistent test data left in DB.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter6 baseline at /app/backend/tests/test_ehs_rag_iteration6.py + iter5 still as regression. Important pinned behaviour: superadmin /api/documents/upload force-overrides source → base_corpus, so REGIONAL_BASE cannot reach Qdrant payload as tier=regional via the upload endpoint today (see action_items). The lazy followups endpoint returns 404 (not 403) on cross-tenant access — by design of the user_id-filtered find. Latency budgets validated: sources < 8s (typical 3-6s), done independent of followups LLM call, cached followups < 500ms. Frontend was NOT tested (backend-only request).",
+  "rca_of_the_issue": "N/A — this iteration was feature verification, not a bug RCA. Open gap: 3-tier ingestion path for the REGIONAL tier — see action_items."
+}

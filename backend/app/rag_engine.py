@@ -26,7 +26,11 @@ EHS_SYSTEM_PROMPT_BASE = """You are an expert EHS (Environment, Health & Safety)
 
 **STRICT ANSWERING RULES — ZERO TOLERANCE FOR HALLUCINATION:**
 
-1. **Company documents always take precedence.** If the retrieved context contains a company-specific procedure for the user's question, cite and follow that exactly.
+1. **Three-tier precedence on conflict.** Each retrieved source carries a `tier` (COMPANY / REGIONAL / GLOBAL). When sources disagree:
+   - COMPANY (the user's own SOPs, policies, audits) ALWAYS overrides REGIONAL and GLOBAL guidance.
+   - REGIONAL (jurisdiction-specific authoritative content like UK HSE, Safe Work AU) overrides GLOBAL.
+   - GLOBAL (ILO, ISO, GHS, OSHA as international reference) is the baseline.
+   When following a company source that diverges from a regulation, explicitly note: "Your company procedure goes further than the [regulation name] baseline — following the stricter requirement." Never recommend an action that violates an explicit company policy.
 
 2. **CITE EVERY FACTUAL CLAIM** using [1], [2], [n] notation matching the numbered context entries. Every regulatory citation MUST anchor to a [n].
 
@@ -156,6 +160,26 @@ def _is_doc_expired(metadata: dict) -> bool:
         return False
 
 
+# Diagram-parity tier inference for chunks ingested before the `tier` field
+# existed. Maps DocumentSource → 3-tier model:
+#   base_corpus, client_web → global
+#   regional_base           → regional
+#   superadmin, company, turnstile_dms → company
+_TIER_MAP = {
+    "base_corpus": "global",
+    "client_web": "global",
+    "regional_base": "regional",
+    "superadmin": "company",
+    "company": "company",
+    "turnstile_dms": "company",
+}
+
+
+def _infer_tier_from_source(source) -> str:
+    s = source.value if hasattr(source, "value") else str(source)
+    return _TIER_MAP.get(s, "global")
+
+
 class RAGEngine:
     def __init__(self, vector_store: VectorStoreService):
         self.vector_store = vector_store
@@ -212,18 +236,62 @@ class RAGEngine:
     ) -> tuple[list[RetrievedChunk], dict]:
         meta = {"hyde": use_hyde, "candidate_pool": candidate_pool, "top_n": top_n}
 
-        if use_hyde and len(query.split()) >= 3:
-            search_query = await self.hyde_rewrite(query)
-        else:
-            search_query = query
-        meta["search_query_preview"] = search_query[:160]
+        # Latency optimization: run the raw-query hybrid search IMMEDIATELY
+        # in parallel with the HyDE rewrite. HyDE typically adds 3-6s before
+        # the user sees any progress; running it concurrently lets us start
+        # retrieval right away. If HyDE returns within its budget, we do a
+        # second hybrid search with the rewritten query and merge results
+        # via RRF. If HyDE is slow/fails, we silently fall back to the raw
+        # search — user never waits.
+        do_hyde = use_hyde and len(query.split()) >= 3
 
-        candidates = await self.vector_store.hybrid_search(
-            query=search_query, top_k=candidate_pool, company_id=company_id,
+        async def _hyde_then_search():
+            try:
+                rewritten = await asyncio.wait_for(
+                    self.hyde_rewrite(query), timeout=settings.hyde_timeout_s,
+                )
+                meta["search_query_preview"] = rewritten[:160]
+                return await self.vector_store.hybrid_search(
+                    query=rewritten, top_k=candidate_pool, company_id=company_id,
+                )
+            except asyncio.TimeoutError:
+                logger.info(f"HyDE exceeded {settings.hyde_timeout_s}s budget — using raw retrieval only")
+                meta["hyde_timeout"] = True
+                return []
+
+        raw_search = self.vector_store.hybrid_search(
+            query=query, top_k=candidate_pool, company_id=company_id,
         )
+
+        if do_hyde:
+            raw_results, hyde_results = await asyncio.gather(raw_search, _hyde_then_search())
+            # Dedupe by chunk_id (keep best score wins via RRF further down)
+            seen: dict[str, RetrievedChunk] = {}
+            for c in raw_results + hyde_results:
+                key = f"{c.doc_id}::{c.chunk_id}"
+                if key not in seen or c.boosted_score > seen[key].boosted_score:
+                    seen[key] = c
+            candidates = list(seen.values())
+        else:
+            candidates = await raw_search
+            meta["search_query_preview"] = query[:160]
+
         # Remove expired docs from retrieval
         candidates = [c for c in candidates if not _is_doc_expired(c.metadata or {})]
         meta["candidates"] = len(candidates)
+
+        # ── Tier boost ──
+        # Diagram-parity: prefer Company > Regional > Global on conflict.
+        # Combines with the per-doc priority_boost already applied at upsert
+        # time. Tier is read from chunk payload (defaults to 'global' for
+        # legacy chunks ingested before the tier field existed).
+        for c in candidates:
+            tier = (c.metadata or {}).get("tier") or _infer_tier_from_source(c.source)
+            if tier == "company":
+                c.boosted_score *= 1.20
+            elif tier == "regional":
+                c.boosted_score *= 1.05
+            # global: no boost (baseline)
 
         # Jurisdiction priority — boost matches, keep cross-jurisdiction visible
         if user_jurisdiction:
@@ -237,9 +305,16 @@ class RAGEngine:
         if not candidates:
             return [], meta
 
-        ranked = await self.vector_store.rerank_chunks(
-            query=query, candidates=candidates, top_n=top_n,
-        )
+        # Latency optimization: skip the cross-encoder reranker when we
+        # have very few candidates (<= 3). Reranking 3 items has no
+        # ordering benefit and costs ~500ms-2s on CPU.
+        if len(candidates) <= 3:
+            meta["rerank_skipped"] = True
+            ranked = sorted(candidates, key=lambda c: c.boosted_score, reverse=True)[:top_n]
+        else:
+            ranked = await self.vector_store.rerank_chunks(
+                query=query, candidates=candidates, top_n=top_n,
+            )
         threshold = 0.20
         relevant = [c for c in ranked if c.boosted_score >= threshold]
         meta["relevant"] = len(relevant)
@@ -336,14 +411,14 @@ class RAGEngine:
                 # Emit as a single token chunk — frontend typewriter handles reveal
                 yield {"type": "token", "data": vision_text}
                 avg_score = (sum(c.boosted_score for c in chunks) / len(chunks)) if chunks else None
-                followups = await self.suggest_followups(clean_q, full_text_str)
                 yield {
                     "type": "done",
                     "data": {
                         "final_text": full_text_str,
                         "confidence_score": avg_score,
                         "is_high_risk": high_risk,
-                        "suggested_followups": followups,
+                        "suggested_followups": [],
+                        "followups_pending": True,
                     },
                 }
                 return
@@ -371,16 +446,19 @@ class RAGEngine:
             final = "".join(full_text)
             avg_score = (sum(c.boosted_score for c in chunks) / len(chunks)) if chunks else None
 
-            # Generate follow-ups (best-effort, non-blocking on failure)
-            followups = await self.suggest_followups(clean_q, final)
-
+            # Latency optimization: emit `done` IMMEDIATELY without waiting
+            # for the followups LLM call (~5-10s). Frontend calls
+            # POST /api/chat/sessions/{id}/followups separately and renders
+            # them when ready. User sees the answer complete instantly
+            # instead of an idle "thinking…" tail.
             yield {
                 "type": "done",
                 "data": {
                     "final_text": final,
                     "confidence_score": avg_score,
                     "is_high_risk": high_risk,
-                    "suggested_followups": followups,
+                    "suggested_followups": [],  # populated via lazy endpoint
+                    "followups_pending": True,
                 },
             }
         except Exception as e:
@@ -411,5 +489,6 @@ class RAGEngine:
                 page_number=c.page_number,
                 last_updated=last_updated,
                 jurisdiction=md.get("jurisdiction") or None,
+                tier=md.get("tier") or _infer_tier_from_source(c.source),
             ))
         return out

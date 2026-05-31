@@ -109,6 +109,7 @@ class SourceReference(BaseModel):
     page_number: Optional[int] = None
     last_updated: Optional[datetime] = None
     jurisdiction: Optional[str] = None
+    tier: Optional[str] = None  # "global" | "regional" | "company" (diagram-parity)
 
 
 class ChatMessageOut(BaseModel):

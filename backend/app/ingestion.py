@@ -4,6 +4,7 @@ Document ingestion: parse (with OCR fallback) → injection-scan → chunk (doc-
 """
 import io
 import hashlib
+from datetime import datetime, timezone
 from typing import Optional
 from loguru import logger
 
@@ -11,7 +12,7 @@ import tiktoken
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from app.config import (
-    get_settings, DocumentType, DocumentSource,
+    get_settings, DocumentType, DocumentSource, SOURCE_TO_TIER, KnowledgeTier,
     get_chunk_config, get_combined_boost, detect_doc_type,
 )
 from app.vector_store import VectorStoreService
@@ -151,12 +152,19 @@ def chunk_text(
             continue
         seen_hashes.add(h)
         chunk_id = f"{doc_id}_{i:04d}"
+        # Diagram-parity: stamp every chunk with `tier` (global/regional/
+        # company) so the retriever can boost company > regional > global
+        # on conflict — and `freshness_ts` so the LLM can disclose how
+        # recent the source is when answering.
+        tier_value = SOURCE_TO_TIER.get(source, KnowledgeTier.GLOBAL).value
         payload = {
             "chunk_id": chunk_id,
             "doc_id": doc_id,
             "text": c,
             "doc_type": doc_type.value,
             "source": source.value,
+            "tier": tier_value,
+            "freshness_ts": datetime.now(timezone.utc).isoformat(),
             "title": title,
             "chunk_index": i,
             "priority_boost": boost,

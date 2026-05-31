@@ -25,8 +25,21 @@ class DocumentSource(str, Enum):
     SUPERADMIN = "superadmin"
     TURNSTILE_DMS = "turnstile_dms"
     BASE_CORPUS = "base_corpus"
+    REGIONAL_BASE = "regional_base"  # Country/region-specific authoritative content (UK HSE, Safe Work AU, etc.)
     CLIENT_WEB = "client_web"
     PLATFORM_WEB = "platform_web"
+
+
+class KnowledgeTier(str, Enum):
+    """Diagram-parity 3-tier knowledge model.
+
+    GLOBAL   — International regulators + standards (ILO, ISO, GHS, OSHA when used as global reference)
+    REGIONAL — Jurisdiction-specific authoritative content (UK HSE, Safe Work AU, Singapore MOM, India Factories Act…)
+    COMPANY  — Tenant-specific SOPs, policies, audits, permits (always highest precedence on conflict)
+    """
+    GLOBAL = "global"
+    REGIONAL = "regional"
+    COMPANY = "company"
 
 
 class WebSourceScope(str, Enum):
@@ -66,7 +79,21 @@ SOURCE_BOOSTS: dict[DocumentSource, float] = {
     DocumentSource.TURNSTILE_DMS: 1.3,
     DocumentSource.CLIENT_WEB: 1.3,
     DocumentSource.PLATFORM_WEB: 1.1,
+    DocumentSource.REGIONAL_BASE: 1.05,
     DocumentSource.BASE_CORPUS: 1.0,
+}
+
+
+# Static map: DocumentSource → KnowledgeTier (used at ingest time to stamp
+# every chunk's payload with `tier`. Retrieval uses this for the per-tier
+# boost in rag_engine.retrieve.)
+SOURCE_TO_TIER: dict[DocumentSource, KnowledgeTier] = {
+    DocumentSource.SUPERADMIN: KnowledgeTier.COMPANY,
+    DocumentSource.TURNSTILE_DMS: KnowledgeTier.COMPANY,
+    DocumentSource.CLIENT_WEB: KnowledgeTier.COMPANY,
+    DocumentSource.PLATFORM_WEB: KnowledgeTier.GLOBAL,
+    DocumentSource.BASE_CORPUS: KnowledgeTier.GLOBAL,
+    DocumentSource.REGIONAL_BASE: KnowledgeTier.REGIONAL,
 }
 
 
@@ -136,6 +163,10 @@ class Settings:
         self.embed_onnx_threads = int(
             os.environ.get("EMBED_ONNX_THREADS", str(max(2, min(8, _cpu // 2))))
         )
+        # HyDE query rewrite is run in PARALLEL with raw retrieval. If it
+        # doesn't return within this budget we ignore its result and rely
+        # on the raw-query results. Keeps p95 latency bounded.
+        self.hyde_timeout_s = float(os.environ.get("HYDE_TIMEOUT_S", "2.5"))
 
 
 @lru_cache()

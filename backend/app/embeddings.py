@@ -1,9 +1,12 @@
 """
 Embedding service — dense (BGE small) + sparse (BM25) + cross-encoder reranker.
-All models loaded lazily and run in thread pool.
+All models loaded lazily and run in thread pool. Query-side embeddings
+are LRU-cached (in-process) so repeated questions don't re-embed.
 """
 import asyncio
+import hashlib
 import re
+from collections import OrderedDict
 from typing import List
 from loguru import logger
 from fastembed import TextEmbedding, SparseTextEmbedding
@@ -16,6 +19,52 @@ settings = get_settings()
 _dense: TextEmbedding | None = None
 _sparse: SparseTextEmbedding | None = None
 _reranker: TextCrossEncoder | None = None
+
+
+# ── Query embedding cache (LRU) ──────────────────────────────────────────────
+# Caches the embedding for queries the user has asked recently. Saves
+# ~50-150ms per duplicate query on CPU. Capped to ~1000 entries × 384 floats
+# × 4 bytes ≈ 1.5 MB — trivial memory footprint.
+class _LRUCache:
+    def __init__(self, capacity: int):
+        self.capacity = capacity
+        self._data: OrderedDict = OrderedDict()
+
+    def get(self, key):
+        if key not in self._data:
+            return None
+        self._data.move_to_end(key)
+        return self._data[key]
+
+    def put(self, key, value):
+        if key in self._data:
+            self._data.move_to_end(key)
+        self._data[key] = value
+        if len(self._data) > self.capacity:
+            self._data.popitem(last=False)
+
+    def __len__(self):
+        return len(self._data)
+
+
+_dense_query_cache = _LRUCache(capacity=1000)
+_sparse_query_cache = _LRUCache(capacity=1000)
+
+
+def _cache_key(query: str) -> str:
+    # Normalize whitespace + lowercase so "What PPE for confined space?" and
+    # "what  ppe for confined space?" share a cache slot.
+    norm = re.sub(r"\s+", " ", (query or "").strip().lower())
+    return hashlib.sha256(norm.encode("utf-8")).hexdigest()
+
+
+def query_cache_stats() -> dict:
+    """Exposed via /api/health/qdrant or admin tools to monitor hit rate."""
+    return {
+        "dense_query_cache_size": len(_dense_query_cache),
+        "sparse_query_cache_size": len(_sparse_query_cache),
+        "capacity": _dense_query_cache.capacity,
+    }
 
 
 def _get_dense() -> TextEmbedding:
@@ -68,7 +117,12 @@ async def embed_texts(texts: List[str]) -> List[List[float]]:
 
 
 async def embed_query(query: str) -> List[float]:
+    key = _cache_key(query)
+    cached = _dense_query_cache.get(key)
+    if cached is not None:
+        return cached
     vectors = await embed_texts([query])
+    _dense_query_cache.put(key, vectors[0])
     return vectors[0]
 
 
@@ -90,7 +144,12 @@ async def embed_sparse_docs(texts: List[str]) -> List[dict]:
 
 
 async def embed_sparse_query(query: str) -> dict:
+    key = _cache_key(query)
+    cached = _sparse_query_cache.get(key)
+    if cached is not None:
+        return cached
     out = await asyncio.to_thread(_embed_sparse_sync, [query], True)
+    _sparse_query_cache.put(key, out[0])
     return out[0]
 
 
