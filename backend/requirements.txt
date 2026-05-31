@@ -24,7 +24,7 @@ distro==1.9.0
 dnspython==2.8.0
 ecdsa==0.19.2
 email-validator==2.3.0
-emergentintegrations==0.1.2
+emergentintegrations @ https://d33sy5i8bnduwe.cloudfront.net/simple/emergentintegrations/emergentintegrations-0.1.2-py3-none-any.whl#sha256=b2ebc36f37d0d21cb7bc6600ef0c15a134baf7e32aa1cddad4d2e61e738a1728
 et_xmlfile==2.0.0
 fastapi==0.110.1
 fastembed==0.4.2
@@ -42,9 +42,9 @@ google-auth-httplib2==0.4.0
 google-genai==2.7.0
 google-generativeai==0.8.6
 googleapis-common-protos==1.75.0
-grpcio==1.80.0
+grpcio==1.71.2
 grpcio-status==1.71.2
-grpcio-tools==1.80.0
+grpcio-tools==1.71.2
 h11==0.16.0
 h2==4.3.0
 hf-xet==1.5.0
@@ -73,7 +73,7 @@ langchain-core==0.3.86
 langchain-text-splitters==0.3.0
 langsmith==0.8.7
 librt==0.11.0
-litellm @ https://customer-assets.emergentagent.com/internal-asset/library/litellm-1.80.0-py3-none-any.whl#sha256=adf398c513273de9341f61822296c6b2145f7f2dc4a69daf3ac04829f5bde3f8
+litellm @ https://customer-assets.emergentagent.com/internal-asset/library/litellm-1.80.0-py3-none-any.whl
 loguru==0.7.2
 lxml==6.1.1
 lxml_html_clean==0.4.5
@@ -108,7 +108,7 @@ pluggy==1.6.0
 portalocker==2.10.1
 propcache==0.5.2
 proto-plus==1.28.0
-protobuf==6.33.6
+protobuf>=5.27,<6.0
 py_rust_stemmers==0.1.8
 pyasn1==0.6.3
 pyasn1_modules==0.4.2

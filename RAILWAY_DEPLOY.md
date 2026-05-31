@@ -23,8 +23,14 @@ In the Emergent chat input, click **"Save to GitHub"** and pick a repo (e.g. `tu
 ## 2. Create the Railway project
 
 1. Go to https://railway.com/new → **"Deploy from GitHub repo"** → pick your repo
-2. Railway will detect the `Dockerfile` automatically
-3. **Do NOT click Deploy yet** — we need to add Mongo + a volume + env vars first
+2. **CRITICAL** — Once the service appears, click it → **Settings** → make these changes BEFORE you deploy:
+   - **Root Directory**: leave **empty** (do NOT set to `/backend` — that makes Railway ignore our Dockerfile and use Railpack auto-detection instead, which causes the build to fail on private packages)
+   - **Builder**: select **Dockerfile** (path: `Dockerfile`)
+   - **Watch Paths**: `**` (rebuild on any change)
+3. Railway will detect the `Dockerfile` at the repo root
+4. **Do NOT click Deploy yet** — we need to add Mongo + a volume + env vars first
+
+> If you already deployed and got the build error about `emergentintegrations==0.1.2`: open Service → Settings → switch Builder to **Dockerfile** with path `Dockerfile`, set Root Directory to empty, then redeploy.
 
 ---
 
