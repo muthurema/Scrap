@@ -31,6 +31,7 @@ export default function DocumentsPage() {
   const [open, setOpen] = useState(false);
   const fileRef = useRef(null);
   const [busy, setBusy] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(null); // { current, total, currentName, failed: [] }
 
   const [form, setForm] = useState({
     title: "", description: "", doc_type: "general", source: "superadmin",
@@ -57,34 +58,61 @@ export default function DocumentsPage() {
 
   const upload = async (e) => {
     e.preventDefault();
-    const file = fileRef.current?.files?.[0];
-    if (!file) { toast.error("Pick a file first"); return; }
-    const fd = new FormData();
-    fd.append("file", file);
-    if (form.title) fd.append("title", form.title);
-    if (form.description) fd.append("description", form.description);
-    fd.append("doc_type", form.doc_type);
-    fd.append("source", form.source);
-    if (form.tags) fd.append("tags", form.tags);
-    if (form.version) fd.append("version", form.version);
-    if (form.expiry_date) fd.append("expiry_date", form.expiry_date);
-    if (form.jurisdiction) fd.append("jurisdiction", form.jurisdiction);
-    if (replacingDoc) fd.append("supersedes_id", replacingDoc.id);
+    const files = Array.from(fileRef.current?.files || []);
+    if (files.length === 0) { toast.error("Pick at least one file"); return; }
+
+    // Replace flow accepts a single file
+    if (replacingDoc && files.length > 1) {
+      toast.error("Replacement supports one file at a time");
+      return;
+    }
 
     setBusy(true);
-    try {
-      await api.post("/documents/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
-      toast.success(replacingDoc ? `Replaced "${replacingDoc.title}" — old version retired` : "Uploaded — processing in background");
+    const failed = [];
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      setUploadProgress({ current: i + 1, total: files.length, currentName: file.name, failed: [...failed] });
+      const fd = new FormData();
+      fd.append("file", file);
+      // For multi-file uploads, only apply the explicit title to the first file (or none) and let the backend infer from filename
+      if (files.length === 1 && form.title) fd.append("title", form.title);
+      if (form.description) fd.append("description", form.description);
+      fd.append("doc_type", form.doc_type);
+      fd.append("source", form.source);
+      if (form.tags) fd.append("tags", form.tags);
+      if (form.version) fd.append("version", form.version);
+      if (form.expiry_date) fd.append("expiry_date", form.expiry_date);
+      if (form.jurisdiction) fd.append("jurisdiction", form.jurisdiction);
+      if (replacingDoc) fd.append("supersedes_id", replacingDoc.id);
+
+      try {
+        await api.post("/documents/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
+      } catch (err) {
+        failed.push({ name: file.name, error: err?.response?.data?.detail || err.message || "Upload failed" });
+      }
+    }
+
+    setUploadProgress(null);
+    setBusy(false);
+
+    const successCount = files.length - failed.length;
+    if (failed.length === 0) {
+      toast.success(
+        replacingDoc
+          ? `Replaced "${replacingDoc.title}" — old version retired`
+          : (files.length === 1 ? "Uploaded — processing in background" : `Uploaded ${successCount} files — processing in background`)
+      );
       setOpen(false);
       setReplacingDoc(null);
       setForm({ title: "", description: "", doc_type: "general", source: "superadmin", tags: "", version: "", expiry_date: "", jurisdiction: "" });
       if (fileRef.current) fileRef.current.value = "";
-      load();
-    } catch (e) {
-      toast.error(e?.response?.data?.detail || "Upload failed");
-    } finally {
-      setBusy(false);
+    } else if (successCount > 0) {
+      toast.error(`Uploaded ${successCount}/${files.length} — ${failed.length} failed: ${failed.map((f) => f.name).join(", ")}`);
+    } else {
+      toast.error(failed[0].error);
     }
+    load();
   };
 
   const openReplace = (doc) => {
@@ -147,15 +175,23 @@ export default function DocumentsPage() {
             </DialogHeader>
             <form onSubmit={upload} className="space-y-4" data-testid="upload-form">
               <div className="space-y-1.5">
-                <Label className="font-mono text-xs uppercase tracking-wider">File (PDF / DOCX / XLSX / TXT / CSV / MD)</Label>
+                <Label className="font-mono text-xs uppercase tracking-wider">
+                  {replacingDoc ? "File (PDF / DOCX / XLSX / TXT / CSV / MD)" : "Files (PDF / DOCX / XLSX / TXT / CSV / MD) — select multiple to bulk upload"}
+                </Label>
                 <input
                   ref={fileRef}
                   type="file"
                   required
+                  multiple={!replacingDoc}
                   accept=".pdf,.docx,.xlsx,.xls,.txt,.csv,.md"
                   data-testid="upload-file-input"
                   className="block w-full text-sm border border-slate-300 rounded-sm file:mr-3 file:py-2 file:px-3 file:bg-slate-900 file:text-white file:border-0 file:font-medium file:cursor-pointer hover:file:bg-slate-800"
                 />
+                {!replacingDoc && (
+                  <div className="text-[11px] text-slate-500 leading-snug">
+                    Bulk upload: hold <span className="font-mono font-semibold">Ctrl</span> / <span className="font-mono font-semibold">⌘</span> in the file picker to select many files. Settings (type, source, tags, jurisdiction) apply to every file in the batch.
+                  </div>
+                )}
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1.5">
@@ -242,13 +278,36 @@ export default function DocumentsPage() {
                   <div>"{replacingDoc.title}" — the old version's chunks will be retired from retrieval after the new version is processed.</div>
                 </div>
               )}
+              {uploadProgress && (
+                <div className="bg-blue-50 border border-blue-200 p-3 text-xs text-blue-900" data-testid="upload-progress">
+                  <div className="flex items-center justify-between font-mono uppercase tracking-wider text-[10px] mb-1.5">
+                    <span>Uploading {uploadProgress.current} / {uploadProgress.total}</span>
+                    <span>{Math.round((uploadProgress.current / uploadProgress.total) * 100)}%</span>
+                  </div>
+                  <div className="h-1.5 bg-blue-100 rounded-sm overflow-hidden mb-2">
+                    <div
+                      className="h-full bg-blue-600 transition-all duration-300"
+                      style={{ width: `${(uploadProgress.current / uploadProgress.total) * 100}%` }}
+                    />
+                  </div>
+                  <div className="truncate text-blue-800">{uploadProgress.currentName}</div>
+                  {uploadProgress.failed.length > 0 && (
+                    <div className="mt-2 pt-2 border-t border-blue-200 text-rose-700">
+                      <span className="font-mono uppercase tracking-wider text-[10px]">{uploadProgress.failed.length} failed:</span>{" "}
+                      {uploadProgress.failed.map((f) => f.name).join(", ")}
+                    </div>
+                  )}
+                </div>
+              )}
               <Button
                 type="submit"
                 disabled={busy}
                 data-testid="submit-upload-btn"
                 className="w-full rounded-sm bg-blue-600 hover:bg-blue-700 text-white h-10 font-semibold tracking-tight"
               >
-                {busy ? (replacingDoc ? "REPLACING..." : "UPLOADING...") : (replacingDoc ? "UPLOAD REPLACEMENT" : "UPLOAD & PROCESS")}
+                {busy
+                  ? (uploadProgress ? `UPLOADING ${uploadProgress.current}/${uploadProgress.total}…` : (replacingDoc ? "REPLACING..." : "UPLOADING..."))
+                  : (replacingDoc ? "UPLOAD REPLACEMENT" : "UPLOAD & PROCESS")}
               </Button>
             </form>
           </DialogContent>

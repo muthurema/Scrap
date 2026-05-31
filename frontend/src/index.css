@@ -4,6 +4,15 @@
 
 @import url('https://fonts.googleapis.com/css2?family=Chivo:wght@400;500;700;900&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
+/* Hide the platform-injected "Made with Emergent" badge if re-injected at runtime */
+#emergent-badge,
+a[href*="emergent.sh/?utm_source=emergent-badge"],
+[id*="made-with-emergent"] {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
 :root {
     --background: 210 17% 98%;            /* slate-50 */
     --foreground: 222 47% 11%;            /* slate-900 */
