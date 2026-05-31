@@ -28,6 +28,21 @@ export function MessageRow({ msg, onCopy, onFeedback, onFollowup, onAcknowledge,
             </button>
           </div>
           <div className="text-slate-800 whitespace-pre-wrap">{msg.content}</div>
+          {msg.images?.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-2" data-testid="user-msg-images">
+              {msg.images.map((src, i) => (
+                <a
+                  key={`umi-${msg.message_id}-${i}`}
+                  href={src}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="block border border-slate-300 hover:border-slate-500 transition-colors overflow-hidden"
+                >
+                  <img src={src} alt="attached" className="h-24 w-24 object-cover" draggable="false" />
+                </a>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     );

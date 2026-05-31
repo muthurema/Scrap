@@ -172,17 +172,40 @@ EHS (Environment, Health & Safety) RAG chatbot for Turnstile360 — adapted from
 - Bulk upload tested back-to-back: 2 docs → both 201, count grew correctly
 - Login / chat / admin all use the Turnstile360 logo at 32-40px
 
+## v3.3 — Photo Input + IDOR Patches + Doodle Backdrop (Feb 2026)
+
+### Implemented
+- **🔒 IDOR fixes** (chat history isolation):
+  - `GET /api/chat/sessions/{id}/messages` now checks ownership → 403 for other users
+  - `POST /api/chat/stream` with someone else's `session_id` → 403
+  - Verified via curl: cross-user read = 403, cross-user inject = 403, cross-user delete = 404
+- **📎 Photo / image input via Claude vision**:
+  - Paperclip button on chat input (left side of textarea); JPG/PNG/WEBP up to 5 MB each, max 3 per message
+  - Thumbnails preview with × remove before send
+  - User's images shown inline in the assistant's reply thread
+  - Backend `/api/chat/stream` accepts `images: [data-url]` field; validated in `app/vision.py` (`parse_data_urls` + size/mime guards)
+  - Non-streaming vision path via `emergentintegrations.LlmChat` + `ImageContent(image_base64=...)` model `claude-sonnet-4-6`
+  - Single-shot SSE delivery so the existing frontend typewriter still gives a smooth reveal; RAG retrieval still runs and sources are still emitted
+  - Test: red-triangle "DANGER FLAMMABLE" image → Claude correctly identified the hazard and cross-cited GHS/HazCom 2012, hot-work permit LEL <10%, JSA, ISO 45001 [1][2][3][4][5]
+- **🎨 EHS doodle backdrop**:
+  - Login left brand panel (inverted for dark bg, low opacity)
+  - Chat empty-state with masked fade so it doesn't compete with the suggestions
+- **📝 `/app/image_testing.md`** saved with the testing-agent rules from the playbook
+- **schema**: `ChatMessageIn.images: Optional[list[str]]` (max 3)
+
+### Skipped (per user)
+- Multi-language detection / bilingual answers
+- PWA / offline mode
+- Incident-report integration with Turnstile360 (deferred until API spec)
+
+### Pending — RBAC overhaul (next session, Phase B)
+- New `admin` role (org head) — uploads org docs + URLs, scoped to their company
+- `superadmin` retains base-corpus + global view; `user` chat-only, must belong to a company
+- Invite flow: both invite-code AND email-allowlist supported
+- Admin UI filtered by role
+- Sign-up requires invite-code or allowlisted email (unless first user)
+
 ## Backlog
-
-### Each is its own session
-- **Multi-language detection + bilingual answers**
-- **Photo/image input** via Claude vision (drum labels, PPE photos, hazard photos)
-- **Voice I/O** (Whisper STT + TTS) for hands-free field use
-- **Incident report integration** with Turnstile360 (pre-fill incident from chat context — pending API spec from user)
-- **SDS / chemical database integration** (PubChem API)
-- **Offline / PWA mode**
-
-## Next Tasks
-1. Diagnose / fix production hang at rag.turnstile360.com (run RE-SEED CORPUS from admin, or pursue env-var path)
-2. Multi-language support
-3. Photo input via Claude vision
+- Voice I/O (Whisper STT + TTS)
+- Incident report integration with Turnstile360
+- SDS / chemical database integration (PubChem)

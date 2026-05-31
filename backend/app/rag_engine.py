@@ -290,6 +290,7 @@ class RAGEngine:
         company_id: Optional[str] = None,
         user_jurisdiction: Optional[str] = None,
         sme_corrections: Optional[list[dict]] = None,
+        images_b64: Optional[list[tuple[str, str]]] = None,
     ) -> AsyncIterator[dict]:
         try:
             clean_q = sanitize_user_query(query)
@@ -300,6 +301,7 @@ class RAGEngine:
             )
             retrieval_meta["injection_signal"] = injection_flag
             retrieval_meta["high_risk"] = high_risk
+            retrieval_meta["has_images"] = bool(images_b64)
 
             sources = self.chunks_to_sources(chunks)
             yield {
@@ -311,14 +313,47 @@ class RAGEngine:
             if high_risk:
                 yield {"type": "token", "data": f"{ESCALATION_BANNER}\n\n---\n\n"}
 
+            user_message_content = _build_user_message(
+                clean_q, chunks, user_jurisdiction, sme_corrections or [], high_risk,
+            )
+
+            # ── Vision path: non-streamed via LlmChat with image attachments ───────
+            if images_b64:
+                from app.vision import claude_vision_answer
+                vision_prompt = (
+                    EHS_SYSTEM_PROMPT_BASE
+                    + "\n\nIMPORTANT — The user has attached one or more images alongside their question. "
+                    "Describe what is visible in the images (PPE, hazards, labels, equipment, signage) "
+                    "and use those observations together with the retrieved EHS context to answer."
+                )
+                vision_text = await claude_vision_answer(
+                    system_prompt=vision_prompt,
+                    user_text=user_message_content,
+                    images_b64=images_b64,
+                    session_id=session_id,
+                )
+                full_text_str = (f"{ESCALATION_BANNER}\n\n---\n\n" if high_risk else "") + vision_text
+                # Emit as a single token chunk — frontend typewriter handles reveal
+                yield {"type": "token", "data": vision_text}
+                avg_score = (sum(c.boosted_score for c in chunks) / len(chunks)) if chunks else None
+                followups = await self.suggest_followups(clean_q, full_text_str)
+                yield {
+                    "type": "done",
+                    "data": {
+                        "final_text": full_text_str,
+                        "confidence_score": avg_score,
+                        "is_high_risk": high_risk,
+                        "suggested_followups": followups,
+                    },
+                }
+                return
+
+            # ── Text-only path: streamed via litellm ──────────────────────────────
             messages = [{"role": "system", "content": EHS_SYSTEM_PROMPT_BASE}]
             if history:
                 for h in history[-8:]:
                     messages.append({"role": h["role"], "content": h["content"]})
-            messages.append({
-                "role": "user",
-                "content": _build_user_message(clean_q, chunks, user_jurisdiction, sme_corrections or [], high_risk),
-            })
+            messages.append({"role": "user", "content": user_message_content})
 
             full_text = []
             if high_risk:

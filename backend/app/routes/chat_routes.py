@@ -30,12 +30,18 @@ def _parse_dt(value):
 
 
 async def _ensure_session(payload: ChatMessageIn, current_user: dict) -> str:
+    """
+    Either resolves an existing session (verifying the caller owns it) OR creates a fresh one.
+    Returns 404 if the session does not exist; 403 if it exists but belongs to a different user.
+    """
     session_id = payload.session_id
     now = _now_iso()
     if session_id:
         session = await chat_sessions_col().find_one({"id": session_id})
         if not session:
             raise HTTPException(404, "Chat session not found")
+        if session.get("user_id") != current_user.get("sub"):
+            raise HTTPException(403, "You don't have access to this chat session")
         return session_id
     session_id = str(uuid.uuid4())
     await chat_sessions_col().insert_one({
@@ -106,6 +112,15 @@ async def chat(payload: ChatMessageIn, request: Request, current_user: dict = De
 
 @router.post("/stream")
 async def chat_stream(payload: ChatMessageIn, request: Request, current_user: dict = Depends(get_current_user)):
+    # Validate any attached images BEFORE we open the SSE response so errors return a normal 4xx
+    images_b64 = []
+    if payload.images:
+        from app.vision import parse_data_urls
+        try:
+            images_b64 = parse_data_urls(payload.images)
+        except ValueError as ve:
+            raise HTTPException(400, str(ve))
+
     session_id = await _ensure_session(payload, current_user)
     history = await _load_history(session_id)
     rag = RAGEngine(get_vector_store())
@@ -130,6 +145,7 @@ async def chat_stream(payload: ChatMessageIn, request: Request, current_user: di
                 company_id=current_user.get("company_id"),
                 user_jurisdiction=user_juris,
                 sme_corrections=sme_corrections,
+                images_b64=images_b64 or None,
             ):
                 etype = event["type"]
                 data = event.get("data")
@@ -154,6 +170,8 @@ async def chat_stream(payload: ChatMessageIn, request: Request, current_user: di
                      "content": payload.content, "sources": [], "confidence_score": None,
                      "pii_categories": detect_pii(payload.content),
                      "injection_signal": final_text_holder["meta"].get("injection_signal", False),
+                     "has_images": bool(images_b64),
+                     "image_count": len(images_b64),
                      "created_at": created_at},
                     {"id": assistant_msg_id, "session_id": session_id, "role": "assistant",
                      "content": final_text_holder["text"],
@@ -197,6 +215,13 @@ async def list_sessions(current_user: dict = Depends(get_current_user)):
 
 @router.get("/sessions/{session_id}/messages", response_model=list[ChatMessageOut])
 async def get_messages(session_id: str, current_user: dict = Depends(get_current_user)):
+    # Ownership check — prevent IDOR
+    session = await chat_sessions_col().find_one({"id": session_id}, {"_id": 0, "user_id": 1})
+    if not session:
+        raise HTTPException(404, "Session not found")
+    if session.get("user_id") != current_user.get("sub"):
+        raise HTTPException(403, "You don't have access to this chat session")
+
     msgs = await chat_messages_col().find(
         {"session_id": session_id}, {"_id": 0}
     ).sort("created_at", 1).to_list(1000)

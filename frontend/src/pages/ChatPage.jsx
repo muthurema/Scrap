@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { Books, List, PaperPlaneTilt, Robot, Trash } from "@phosphor-icons/react";
+import { Books, List, PaperPlaneTilt, Paperclip, Robot, Trash, X as XIcon } from "@phosphor-icons/react";
 import { toast } from "sonner";
 import { createTypewriter } from "@/lib/typewriter";
 import { authStore } from "@/lib/auth-store";
@@ -27,7 +27,45 @@ export default function ChatPage() {
   const [sending, setSending] = useState(false);
   const [activeSources, setActiveSources] = useState([]);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [attachments, setAttachments] = useState([]); // [{name, dataUrl, size, mime}]
   const messagesEndRef = useRef(null);
+  const fileInputRef = useRef(null);
+
+  const MAX_IMAGES = 3;
+  const MAX_BYTES = 5 * 1024 * 1024;
+  const ALLOWED_MIME = ["image/jpeg", "image/png", "image/webp"];
+
+  const onPickFiles = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    const remaining = MAX_IMAGES - attachments.length;
+    if (files.length > remaining) {
+      toast.error(`You can attach up to ${MAX_IMAGES} images per message`);
+    }
+    const accepted = [];
+    for (const f of files.slice(0, remaining)) {
+      if (!ALLOWED_MIME.includes(f.type)) {
+        toast.error(`${f.name}: only JPEG, PNG, WEBP allowed`);
+        continue;
+      }
+      if (f.size > MAX_BYTES) {
+        toast.error(`${f.name}: max 5 MB per image`);
+        continue;
+      }
+      const dataUrl = await new Promise((res, rej) => {
+        const r = new FileReader();
+        r.onload = () => res(r.result);
+        r.onerror = rej;
+        r.readAsDataURL(f);
+      });
+      accepted.push({ name: f.name, dataUrl, size: f.size, mime: f.type });
+    }
+    setAttachments((cur) => [...cur, ...accepted]);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const removeAttachment = (idx) =>
+    setAttachments((cur) => cur.filter((_, i) => i !== idx));
 
   const loadSessions = async () => {
     try {
@@ -67,7 +105,8 @@ export default function ChatPage() {
 
   const send = async (content) => {
     const text = (content ?? input).trim();
-    if (!text || sending) return;
+    const imagesToSend = attachments.slice(0, MAX_IMAGES);
+    if ((!text && imagesToSend.length === 0) || sending) return;
     setSending(true);
     setActiveSources([]);
 
@@ -78,6 +117,7 @@ export default function ChatPage() {
       session_id: currentSessionId || "new",
       role: "user", content: text, sources: [], confidence_score: null,
       created_at: new Date().toISOString(),
+      images: imagesToSend.map((a) => a.dataUrl),
     };
     const tempAsstMsg = {
       message_id: tempAsstId,
@@ -88,6 +128,7 @@ export default function ChatPage() {
     };
     setMessages((m) => [...m, tempUserMsg, tempAsstMsg]);
     setInput("");
+    setAttachments([]);
 
     const token = authStore.getToken();
     const url = `${process.env.REACT_APP_BACKEND_URL}/api/chat/stream`;
@@ -110,7 +151,11 @@ export default function ChatPage() {
           "Content-Type": "application/json",
           Accept: "text/event-stream",
         },
-        body: JSON.stringify({ content: text, session_id: currentSessionId }),
+        body: JSON.stringify({
+          content: text || "(see attached image)",
+          session_id: currentSessionId,
+          images: imagesToSend.length ? imagesToSend.map((a) => a.dataUrl) : undefined,
+        }),
       });
       if (!resp.ok || !resp.body) {
         const err = await resp.text();
@@ -355,6 +400,36 @@ export default function ChatPage() {
 
             <div className="border-t border-slate-200 bg-white">
               <div className="max-w-3xl mx-auto p-3 sm:p-4">
+                {attachments.length > 0 && (
+                  <div className="flex gap-2 mb-2 flex-wrap" data-testid="attachment-preview">
+                    {attachments.map((a, i) => (
+                      <div
+                        key={`att-${i}`}
+                        className="relative group border border-slate-300 bg-white rounded-sm overflow-hidden"
+                      >
+                        <img
+                          src={a.dataUrl}
+                          alt={a.name}
+                          className="h-20 w-20 object-cover"
+                          draggable="false"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeAttachment(i)}
+                          data-testid={`remove-attachment-${i}`}
+                          className="absolute top-0.5 right-0.5 p-0.5 bg-slate-900/70 hover:bg-rose-600 text-white transition-colors"
+                          aria-label="Remove attachment"
+                          title="Remove"
+                        >
+                          <XIcon size={12} weight="bold" />
+                        </button>
+                        <div className="absolute bottom-0 left-0 right-0 bg-slate-900/70 px-1 py-0.5 font-mono text-[9px] uppercase tracking-wider text-white truncate">
+                          {a.name}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <form
                   onSubmit={(e) => { e.preventDefault(); send(); }}
                   className="relative border border-slate-300 focus-within:border-blue-600 focus-within:ring-2 focus-within:ring-blue-100 transition-all rounded-sm bg-white"
@@ -366,14 +441,36 @@ export default function ChatPage() {
                     onKeyDown={(e) => {
                       if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
                     }}
-                    placeholder="Ask about confined space, LOTO, ISO 45001, HAZOP, incident RCA..."
+                    placeholder={attachments.length > 0
+                      ? "Add a question about the image(s) — or send as-is"
+                      : "Ask about confined space, LOTO, ISO 45001, HAZOP, incident RCA..."}
                     rows={2}
                     data-testid="chat-input"
-                    className="resize-none border-0 focus-visible:ring-0 rounded-sm bg-transparent text-slate-900 placeholder:text-slate-400 px-3 sm:px-4 py-3 pr-14 max-h-40 text-base"
+                    className="resize-none border-0 focus-visible:ring-0 rounded-sm bg-transparent text-slate-900 placeholder:text-slate-400 px-3 sm:px-4 py-3 pl-12 pr-14 max-h-40 text-base"
                   />
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    accept="image/jpeg,image/png,image/webp"
+                    onChange={onPickFiles}
+                    className="hidden"
+                    data-testid="chat-file-input"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={attachments.length >= MAX_IMAGES || sending}
+                    data-testid="attach-image-btn"
+                    className="absolute bottom-2 left-2 h-9 w-9 p-0 rounded-sm border border-transparent hover:border-slate-300 hover:bg-slate-50 text-slate-500 hover:text-slate-800 flex items-center justify-center transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    title={attachments.length >= MAX_IMAGES ? "Max 3 images per message" : "Attach an image (JPG/PNG/WEBP, max 5 MB)"}
+                    aria-label="Attach image"
+                  >
+                    <Paperclip size={16} weight="bold" />
+                  </button>
                   <Button
                     type="submit"
-                    disabled={!input.trim() || sending}
+                    disabled={(!input.trim() && attachments.length === 0) || sending}
                     data-testid="send-message-btn"
                     className="absolute bottom-2 right-2 h-9 w-9 p-0 rounded-sm bg-blue-600 hover:bg-blue-700 text-white"
                   >
@@ -382,6 +479,7 @@ export default function ChatPage() {
                 </form>
                 <div className="mt-2 font-mono text-[10px] uppercase tracking-[0.2em] text-slate-400 text-center leading-relaxed">
                   <span className="hidden sm:inline">Enter to send · Shift+Enter for newline · </span>
+                  <span className="hidden sm:inline">📎 Attach hazard / PPE photos · </span>
                   <span className="text-amber-700">AI-generated — verify before acting.</span>
                 </div>
               </div>

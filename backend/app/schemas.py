@@ -93,6 +93,8 @@ class DocumentListResponse(BaseModel):
 class ChatMessageIn(BaseModel):
     content: str = Field(..., min_length=1, max_length=4000)
     session_id: Optional[str] = None
+    # Up to 3 images per message, each a data URL (data:image/jpeg;base64,...). ~5 MB cap each.
+    images: Optional[list[str]] = Field(default=None, max_length=3)
 
 
 class SourceReference(BaseModel):

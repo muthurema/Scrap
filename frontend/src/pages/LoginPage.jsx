@@ -44,14 +44,19 @@ export default function LoginPage() {
       {/* LEFT — Brand */}
       <div
         className="hidden lg:flex flex-col w-[44%] bg-slate-900 text-white p-12 relative overflow-hidden"
-        style={{
-          backgroundImage: "url('https://static.prod-images.emergentagent.com/jobs/0e7c1b13-1b55-4366-b1aa-0aee4d1bbb0f/images/dc67fb641583c3295298187cf006e27b9b92ed9f39f3b50e729eb4bc88cdecda.png')",
-          backgroundSize: "cover",
-          backgroundPosition: "center",
-        }}
         data-testid="login-brand-panel"
       >
-        <div className="absolute inset-0 bg-slate-900/75"></div>
+        {/* Doodle wallpaper layer */}
+        <div
+          aria-hidden="true"
+          className="absolute inset-0 bg-repeat opacity-[0.18]"
+          style={{
+            backgroundImage: "url('/ehs-doodle.jpg')",
+            backgroundSize: "560px auto",
+            filter: "invert(1) hue-rotate(180deg) saturate(0.6)",
+          }}
+        />
+        <div className="absolute inset-0 bg-gradient-to-br from-slate-900/65 via-slate-900/55 to-slate-900/85"></div>
         <div className="relative z-10 flex items-center gap-3">
           <Logo size={40} />
           <div>
