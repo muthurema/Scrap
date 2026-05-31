@@ -180,12 +180,26 @@ async def chat_stream(payload: ChatMessageIn, request: Request, current_user: di
                         # The LLM still gets the full retrieved context
                         # (global + regional + company) so answer quality
                         # stays high — but the UI only shows the user
-                        # SOURCES THEY CAN ACT ON: i.e. their own company's
-                        # docs. Global/regional references are summarized
-                        # behind a single "+N external references" pill on
-                        # the frontend so the user can drill in if needed.
-                        company_sources = [s for s in (data or []) if s.get("tier") == "company"]
-                        external_count = len(data or []) - len(company_sources)
+                        # SOURCES THEY CAN ACT ON: i.e. their OWN company's
+                        # docs. We must match BOTH tier=company AND
+                        # company_id=current_user.company_id — filtering on
+                        # tier alone would leak Acme's chunks to a Beta
+                        # admin (or to a superadmin with no company).
+                        caller_company_id = current_user.get("company_id")
+                        all_sources = data or []
+                        if caller_company_id:
+                            company_sources = [
+                                s for s in all_sources
+                                if s.get("tier") == "company"
+                                and s.get("company_id") == caller_company_id
+                            ]
+                        else:
+                            # Superadmin / user without a company: no
+                            # "their" company → zero company sources. The
+                            # external_count summary still shows; the LLM
+                            # still uses the full retrieved context.
+                            company_sources = []
+                        external_count = len(all_sources) - len(company_sources)
                         # Persist the FULL list to Mongo (for audit) but
                         # send only the filtered view down the wire.
                         final_text_holder["sources"] = data

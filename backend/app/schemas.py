@@ -110,6 +110,7 @@ class SourceReference(BaseModel):
     last_updated: Optional[datetime] = None
     jurisdiction: Optional[str] = None
     tier: Optional[str] = None  # "global" | "regional" | "company" (diagram-parity)
+    company_id: Optional[str] = None  # owning company for company-tier docs; None for global/regional
 
 
 class ChatMessageOut(BaseModel):

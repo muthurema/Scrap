@@ -250,6 +250,34 @@ EHS (Environment, Health & Safety) RAG chatbot for Turnstile360 — adapted from
 - Diagnose production hang at rag.turnstile360.com (use Re-seed Corpus button after redeploy)
 - Cleanup `// authenticate` placeholder comments across frontend/backend (P2)
 
+## v3.10 — Hybrid Anthropic direct path + multi-tenant source filtering + clickable sources (Feb 2026)
+
+User picked option (a) from v3.9. Three product changes, all tested end-to-end.
+
+### 1. Hybrid Anthropic direct path (prompt caching support)
+- `app/config.py` — new `ANTHROPIC_API_KEY` + `ANTHROPIC_DIRECT_MODEL` (default `claude-sonnet-4-5-20250929`) env vars (both unset by default)
+- `app/rag_engine.py _litellm_params` — when `ANTHROPIC_API_KEY` is set, switches to direct litellm `anthropic/<model>` provider, converts the system message to Anthropic's content-block list with `cache_control={"type": "ephemeral"}`, and attaches the `anthropic-beta: prompt-caching-2024-07-31` header. When unset, falls back to the existing Emergent universal-key proxy path. Zero-risk activation/deactivation via env var.
+- User can flip on by setting `ANTHROPIC_API_KEY=sk-ant-...` in Railway; expected ~1-3s TTFT win + ~90% input-token cost cut on cached calls; instant rollback by removing the env var.
+
+### 2. Chat sources panel — company-only with multi-tenant isolation
+- `app/routes/chat_routes.py` — the `sources` SSE event payload is now a typed envelope `{sources: [...company-only...], external_count: N}` instead of a bare array. The LLM still receives ALL retrieved chunks (global + regional + company) so answer quality is unchanged — ONLY the wire payload to the UI is filtered.
+- Filter requires **BOTH** `tier == "company"` AND `company_id == current_user.company_id`. Critical: filtering on tier alone would have leaked Acme's chunks to a Beta admin or to a superadmin.
+- Superadmin / users without a company see zero company sources by design + the `external_count` summary.
+- `app/rag_engine.py chunks_to_sources` — now also stamps `company_id` on every `SourceReference` so the chat-route filter can match it.
+- `app/schemas.py SourceReference` — new `company_id: Optional[str]` field.
+- Frontend `ChatPage.jsx` — handles the new envelope shape with backward-compat for legacy bare-array payloads. Sources panel header renamed `RETRIEVED SOURCES` → `COMPANY SOURCES`. Empty-state copy now explains why ("external EHS guidance only — no internal SOPs matched") when external_count > 0. New `+N external references` pill at the bottom of the source list.
+
+### 3. Clickable sources + doc preview
+- New backend endpoints (both behind `_user_can_access_doc` ACL: superadmin everything / global+regional+platform-web open to all authenticated / company docs restricted to same company_id):
+  - `GET /api/documents/{doc_id}` — single doc metadata for the preview modal
+  - `GET /api/documents/{doc_id}/download` — streams the original file with `Content-Disposition: inline` so PDFs/images render in-browser
+- Frontend `SourceCard.jsx` — refactored to render as a `<button>` when `onOpen` is provided; hover state + "⌕ Click to open" hint
+- Frontend `ChatPage.jsx` — new `docPreview` state + shadcn `<Dialog>` modal showing: retrieved excerpt, jurisdiction/expiry/version metadata, and an "Open original file" button that downloads the blob via authenticated axios and pops it open in a new tab
+
+### Verified
+- **iteration_7 backend testing**: 14/15 → fixed cross-tenant leak → re-ran with iter6+iter7 → **29/29 PASSED**. Plus 12/12 iter5 regression = **41/41 across all suites**.
+- Smoke: superadmin asking "What PPE for confined space?" → 0 company sources + 5 external_count (correct); answer still cites those external refs in-prose.
+
 ## v3.9 — Optimization audit follow-up (Feb 2026)
 
 User shared a 12-point optimization guide. Audit: 8/12 already done in v3.6-v3.8, 2 quick wins applied, 2 we deliberately skip (with reason).

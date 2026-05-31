@@ -531,5 +531,6 @@ class RAGEngine:
                 last_updated=last_updated,
                 jurisdiction=md.get("jurisdiction") or None,
                 tier=md.get("tier") or _infer_tier_from_source(c.source),
+                company_id=md.get("company_id") or None,
             ))
         return out

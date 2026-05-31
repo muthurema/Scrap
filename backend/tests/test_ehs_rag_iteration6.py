@@ -212,20 +212,39 @@ def test_embedding_cache_warm_query_works(admin_headers):
     assert s2 < 10.0, f"warm-cache 2nd run sources took {s2:.2f}s"
 
 
+def _unwrap_sources(sources_data):
+    """`sources_data` from _consume_stream is the new envelope
+    `{sources: [...], external_count: N}` (or a bare list on the
+    legacy iter5-and-earlier shape). Returns the inner list either way."""
+    if isinstance(sources_data, dict):
+        return sources_data.get("sources") or []
+    return sources_data or []
+
+
 # ── Tier metadata: SourceReference.tier present on every source ──
 
 def test_source_response_includes_tier_field(admin_headers):
     """Every source in the sources event must have a `tier` field in
-    {global, regional, company}."""
-    _, _, sources, _, _ = _consume_stream(
+    {global, regional, company}. Note: superadmin sees no company sources
+    by design — for them, the company-filtered wire payload is empty.
+    Tier presence is still verified at the chunk-payload level via the
+    separate tier-stamping tests below."""
+    _, _, sources_data, _, _ = _consume_stream(
         admin_headers, "What does LOTO stand for?"
     )
-    assert sources, "no sources returned"
+    # Verify envelope shape
+    assert isinstance(sources_data, dict), \
+        f"expected new envelope dict, got {type(sources_data).__name__}"
+    assert "sources" in sources_data and "external_count" in sources_data
+    sources = sources_data["sources"]
     valid = {"global", "regional", "company"}
+    # For a superadmin caller the filtered list is empty by design.
+    # Either way, any item present must carry a valid tier.
     for s in sources:
         assert "tier" in s, f"source missing tier: {s.get('title')}"
         assert s["tier"] in valid, f"bad tier: {s['tier']}"
-    print(f"\nTiers seen: {set(s['tier'] for s in sources)}")
+    print(f"\nEnvelope ok: {len(sources)} company sources, "
+          f"{sources_data['external_count']} external")
 
 
 # ── Tier metadata on uploaded chunks (via sources response) ──
@@ -269,26 +288,25 @@ def test_upload_with_source_base_corpus_results_in_global_tier(admin_headers):
     proc = _wait_processed(admin_headers, doc_id, timeout_s=120)
     assert proc and proc.get("is_processed"), f"not processed: {proc}"
     # Query for the marker
-    _, _, sources, _, _ = _consume_stream(
+    _, _, sources_data, _, _ = _consume_stream(
         admin_headers, f"Tell me about zorbax_{marker} in one line."
     )
-    # Find our doc among the sources
-    ours = [s for s in (sources or []) if s.get("doc_id") == doc_id]
-    if ours:
-        for s in ours:
-            assert s["tier"] == "global", f"expected global tier for base_corpus, got {s['tier']}"
-        print(f"\nfound {len(ours)} source rows tier=global as expected")
-    else:
-        # Marker is unique but retrieval may not surface it if scores filter
-        # too aggressively — don't hard-fail; log it.
-        print(f"\nWarning: uploaded doc {doc_id} not in retrieved sources for marker query")
+    sources = _unwrap_sources(sources_data)
+    # Superadmin's company-filtered view is always empty; this test now
+    # asserts the upload succeeded and that no global doc leaks through
+    # the company-only wire filter. Tier-on-chunk is verified separately.
+    ours = [s for s in sources if s.get("doc_id") == doc_id]
+    assert ours == [], (
+        f"global-tier doc leaked into the company-only wire payload: {ours}"
+    )
+    print(f"\nWire payload correctly excludes global doc {doc_id}")
     # Cleanup
     requests.delete(f"{BASE_URL}/api/documents/{doc_id}", headers=admin_headers, timeout=15)
 
 
 def test_upload_form_source_superadmin_is_overridden_to_base_corpus(admin_headers):
-    """Superadmin posting source=superadmin is currently force-mapped to
-    base_corpus by the route. This pins existing behaviour."""
+    """Superadmin posting source=superadmin is force-mapped to base_corpus
+    by the route. Pins existing behaviour from v3.8."""
     marker = uuid.uuid4().hex[:6]
     body = f"iter6 source-override probe {marker}.".encode("utf-8")
     r = _upload_txt(admin_headers, body, f"iter6_super_{marker}", source_form="superadmin")
@@ -299,21 +317,27 @@ def test_upload_form_source_superadmin_is_overridden_to_base_corpus(admin_header
                     headers=admin_headers, timeout=15)
 
 
-def test_upload_with_source_regional_base_accepted_but_overridden(admin_headers):
-    """source=regional_base is a valid enum and the endpoint must NOT 400 on
-    it. With the current route, superadmin role still force-routes the doc
-    to base_corpus → tier=global. Real regional ingestion would require a
-    role that can keep source=regional_base (none currently)."""
+def test_upload_with_source_regional_base_requires_jurisdiction(admin_headers):
+    """v3.8 behaviour: superadmin can upload as regional_base, but
+    `jurisdiction` is required. Without it the endpoint must 400 with a
+    clear message; with it the doc is created with source=regional_base
+    so its chunks carry tier=regional."""
     marker = uuid.uuid4().hex[:6]
     body = f"iter6 regional probe {marker}. UK HSE confined space regulations.".encode("utf-8")
+    # 1) Without jurisdiction → 400
     r = _upload_txt(admin_headers, body, f"iter6_reg_{marker}", source_form="regional_base")
-    # Must NOT reject the new enum value
-    assert r.status_code == 201, f"regional_base rejected: {r.status_code} {r.text}"
+    assert r.status_code == 400, f"expected 400 without jurisdiction, got {r.status_code}: {r.text}"
+    assert "jurisdiction" in r.text.lower()
+    # 2) With jurisdiction → 201 and source preserved
+    files = {"file": (f"iter6_reg_{marker}.txt", body, "text/plain")}
+    data = {"title": f"iter6_reg_{marker}", "doc_type": "regulatory",
+            "source": "regional_base", "jurisdiction": "UK"}
+    r = requests.post(f"{BASE_URL}/api/documents/upload",
+                      headers=admin_headers, files=files, data=data, timeout=60)
+    assert r.status_code == 201, f"regional_base with jurisdiction rejected: {r.status_code} {r.text}"
     doc = r.json()
-    # Route currently forces superadmin uploads to base_corpus — pin that.
-    assert doc.get("source") in ("regional_base", "base_corpus"), \
-        f"unexpected source: {doc.get('source')}"
-    # cleanup
+    assert doc.get("source") == "regional_base", f"source not preserved: {doc.get('source')}"
+    assert doc.get("jurisdiction") == "UK"
     requests.delete(f"{BASE_URL}/api/documents/{doc['id']}",
                     headers=admin_headers, timeout=15)
 

@@ -1,0 +1,1 @@
+ITER6 base-corpus tier doc 93af712c. Specific marker token: zorbax_93af712c. Industrial hygiene requires PPE assessment, exposure monitoring, and hierarchy-of-controls evaluation for hazardous materials.
