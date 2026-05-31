@@ -35,6 +35,9 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(level
 logger = logging.getLogger("ehs-rag")
 
 
+_models_ready = {"value": False, "error": None}
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("EHS RAG starting up...")
@@ -47,15 +50,27 @@ async def lifespan(app: FastAPI):
     await vs.ensure_collections()
     logger.info(f"Qdrant collections ready at {settings.qdrant_path}")
 
-    # Pre-warm embedding models so first request isn't hit by lazy download race
-    try:
-        from app.embeddings import _get_dense, _get_sparse, _get_reranker
-        _get_dense()
-        _get_sparse()
-        _get_reranker()
-        logger.info("Embedding models pre-loaded (dense + BM25 + cross-encoder)")
-    except Exception as e:
-        logger.warning(f"Model pre-load failed: {e}")
+    # Pre-warm embedding models with retries — HuggingFace cold downloads
+    # occasionally flap on first deploy. Try up to 3 times with backoff.
+    import asyncio
+    from app.embeddings import _get_dense, _get_sparse, _get_reranker
+    for attempt in range(1, 4):
+        try:
+            _get_dense()
+            _get_sparse()
+            _get_reranker()
+            _models_ready["value"] = True
+            _models_ready["error"] = None
+            logger.info("Embedding models pre-loaded (dense + BM25 + cross-encoder)")
+            break
+        except Exception as e:
+            _models_ready["error"] = str(e)
+            wait = 5 * attempt
+            logger.warning(f"Model pre-load attempt {attempt}/3 failed: {e} — retrying in {wait}s")
+            if attempt < 3:
+                await asyncio.sleep(wait)
+    if not _models_ready["value"]:
+        logger.error(f"Model pre-load FAILED after 3 attempts: {_models_ready['error']}")
 
     start_scheduler()
     yield
@@ -91,9 +106,20 @@ async def root():
 
 @api.get("/health")
 async def health():
+    """Liveness + readiness. Returns 503 until embedding models finish loading."""
+    from fastapi import Response
     vs = get_vector_store()
-    status = await vs.health()
-    return {"status": "healthy", "qdrant": status, "model": settings.claude_model}
+    qdrant_status = await vs.health()
+    body = {
+        "status": "healthy" if _models_ready["value"] else "warming",
+        "qdrant": qdrant_status,
+        "model": settings.claude_model,
+        "models_ready": _models_ready["value"],
+        "models_error": _models_ready["error"],
+    }
+    if not _models_ready["value"]:
+        return Response(content=__import__("json").dumps(body), status_code=503, media_type="application/json")
+    return body
 
 
 api.include_router(auth_router)
