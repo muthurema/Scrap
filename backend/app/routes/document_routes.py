@@ -113,10 +113,34 @@ async def upload_document(
     if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(400, f"File type {ext} not supported. Allowed: {sorted(ALLOWED_EXTENSIONS)}")
 
-    contents = await file.read()
-    if len(contents) > MAX_SIZE_BYTES:
-        raise HTTPException(413, f"File exceeds {settings.max_upload_size_mb}MB limit")
-    if len(contents) < 16:
+    # Stream the upload to disk in chunks to avoid loading 200MB+ textbooks into RAM
+    upload_dir = Path(settings.upload_dir)
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    doc_id = str(uuid.uuid4())
+    safe_filename = f"{doc_id}{ext}"
+    file_path = upload_dir / safe_filename
+    total_bytes = 0
+    CHUNK = 1024 * 1024  # 1 MB
+    try:
+        with open(file_path, "wb") as out:
+            while True:
+                chunk = await file.read(CHUNK)
+                if not chunk:
+                    break
+                total_bytes += len(chunk)
+                if total_bytes > MAX_SIZE_BYTES:
+                    out.close()
+                    file_path.unlink(missing_ok=True)
+                    raise HTTPException(413, f"File exceeds {settings.max_upload_size_mb}MB limit")
+                out.write(chunk)
+    except HTTPException:
+        raise
+    except Exception as e:
+        file_path.unlink(missing_ok=True)
+        raise HTTPException(500, f"Upload failed while writing file: {e}")
+
+    if total_bytes < 16:
+        file_path.unlink(missing_ok=True)
         raise HTTPException(400, "File is empty or too small")
 
     # Parse and validate expiry date
@@ -135,15 +159,8 @@ async def upload_document(
     if supersedes_id:
         superseded_doc = await documents_col().find_one({"id": supersedes_id})
         if not superseded_doc:
+            file_path.unlink(missing_ok=True)
             raise HTTPException(404, f"supersedes_id={supersedes_id} not found")
-
-    upload_dir = Path(settings.upload_dir)
-    upload_dir.mkdir(parents=True, exist_ok=True)
-    doc_id = str(uuid.uuid4())
-    safe_filename = f"{doc_id}{ext}"
-    file_path = upload_dir / safe_filename
-    with open(file_path, "wb") as f:
-        f.write(contents)
 
     tag_list = [t.strip() for t in tags.split(",")] if tags else []
     doc = {
@@ -153,7 +170,7 @@ async def upload_document(
         "original_filename": file.filename,
         "file_path": str(file_path),
         "file_type": ext.lstrip("."),
-        "file_size_bytes": len(contents),
+        "file_size_bytes": total_bytes,
         "mime_type": file.content_type,
         "doc_type": doc_type,
         "source": source,
@@ -185,7 +202,7 @@ async def upload_document(
 
     await audit(user=current_user, action="upload_document", resource_type="document",
                 resource_id=doc_id, request=request,
-                details={"filename": file.filename, "size_bytes": len(contents),
+                details={"filename": file.filename, "size_bytes": total_bytes,
                          "doc_type": doc_type, "source": source,
                          "supersedes_id": supersedes_id,
                          "jurisdiction": jurisdiction,

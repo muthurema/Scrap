@@ -107,10 +107,26 @@ export default function DocumentsPage() {
       setReplacingDoc(null);
       setForm({ title: "", description: "", doc_type: "general", source: "superadmin", tags: "", version: "", expiry_date: "", jurisdiction: "" });
       if (fileRef.current) fileRef.current.value = "";
-    } else if (successCount > 0) {
-      toast.error(`Uploaded ${successCount}/${files.length} — ${failed.length} failed: ${failed.map((f) => f.name).join(", ")}`);
     } else {
-      toast.error(failed[0].error);
+      // Group failures by reason to surface useful guidance instead of one cryptic toast
+      const byReason = failed.reduce((acc, f) => {
+        const err = f.error || "";
+        const key = err.includes("exceeds") && err.includes("MB limit") ? "too_large"
+                  : err.includes("not supported") ? "unsupported_type"
+                  : "other";
+        (acc[key] = acc[key] || []).push(f);
+        return acc;
+      }, {});
+      const summary = [
+        successCount > 0 ? `${successCount} uploaded` : null,
+        byReason.too_large ? `${byReason.too_large.length} too large` : null,
+        byReason.unsupported_type ? `${byReason.unsupported_type.length} wrong file type` : null,
+        byReason.other ? `${byReason.other.length} other error` : null,
+      ].filter(Boolean).join(" · ");
+      toast.error(summary, {
+        description: failed.slice(0, 6).map((f) => `${f.name}: ${(f.error || "").slice(0, 100)}`).join("\n") + (failed.length > 6 ? `\n…and ${failed.length - 6} more` : ""),
+        duration: 15000,
+      });
     }
     load();
   };

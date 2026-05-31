@@ -117,7 +117,7 @@ class Settings:
         self.embedding_model = os.environ.get("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5")
         self.embedding_dimensions = int(os.environ.get("EMBEDDING_DIMENSIONS", "384"))
         self.claude_model = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-6")
-        self.max_upload_size_mb = int(os.environ.get("MAX_UPLOAD_SIZE_MB", "50"))
+        self.max_upload_size_mb = int(os.environ.get("MAX_UPLOAD_SIZE_MB", "300"))
 
 
 @lru_cache()
