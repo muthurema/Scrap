@@ -187,6 +187,7 @@ export default function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
+                autoComplete="email"
                 className="rounded-sm border-slate-300 focus-visible:ring-blue-600"
               />
             </div>
@@ -200,6 +201,7 @@ export default function LoginPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 required
                 minLength={6}
+                autoComplete={mode === "login" ? "current-password" : "new-password"}
                 className="rounded-sm border-slate-300 focus-visible:ring-blue-600"
               />
             </div>
