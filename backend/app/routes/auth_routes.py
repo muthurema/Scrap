@@ -4,7 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.db import users_col, invites_col, allowlist_col, companies_col
 from app.schemas import UserCreate, UserLogin, TokenResponse, UserOut
-from app.auth import hash_password, verify_password, create_access_token, get_current_user, generate_id
+from app.auth import (
+    hash_password_async, verify_password_async,
+    create_access_token, get_current_user, generate_id,
+)
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -70,7 +73,7 @@ async def register(payload: UserCreate):
     doc = {
         "id": user_id,
         "email": payload.email,
-        "hashed_password": hash_password(payload.password),
+        "hashed_password": await hash_password_async(payload.password),
         "full_name": payload.full_name,
         "role": role,
         "company_id": company_id,
@@ -105,7 +108,7 @@ async def register(payload: UserCreate):
 @router.post("/login", response_model=TokenResponse)
 async def login(payload: UserLogin):
     user = await users_col().find_one({"email": payload.email})
-    if not user or not verify_password(payload.password, user["hashed_password"]):
+    if not user or not await verify_password_async(payload.password, user["hashed_password"]):
         raise HTTPException(401, "Invalid email or password")
     if not user.get("is_active", True):
         raise HTTPException(403, "Account is disabled")

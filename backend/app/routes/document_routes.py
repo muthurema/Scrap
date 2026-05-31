@@ -45,14 +45,22 @@ def _doc_to_out(doc: dict) -> DocumentOut:
     return DocumentOut(**doc)
 
 
+def _read_file_sync(file_path: str) -> bytes:
+    """Synchronous file read — offloaded to a worker thread so a 300MB
+    PDF doesn't block the asyncio event loop (freezing login / health)."""
+    with open(file_path, "rb") as f:
+        return f.read()
+
+
 async def _process_document_bg(doc_id: str, file_path: str, file_ext: str):
+    import asyncio
     ingestion = IngestionService(get_vector_store())
     try:
         doc = await documents_col().find_one({"id": doc_id})
         if not doc:
             return
-        with open(file_path, "rb") as f:
-            file_bytes = f.read()
+        # 300MB sync read would freeze the event loop — offload to threadpool
+        file_bytes = await asyncio.to_thread(_read_file_sync, file_path)
 
         chunk_count, injection_findings = await ingestion.ingest_document(
             file_bytes=file_bytes, file_ext=file_ext, doc_id=doc_id,

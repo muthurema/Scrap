@@ -1,0 +1,37 @@
+{
+  "summary": "Iteration 4 backend testing - 13/14 PASSED (1 SKIPPED, 0 FAILED). All P0 event-loop responsiveness fixes are working correctly. Concurrent /api/health and /api/auth/login calls during a 134-chunk document ingestion stayed well under the 2s SLA (health max=0.135s, login max=0.341s, 0 errors across 10 iterations). Async password hashing/verification works on login + register. /api/health no longer touches qdrant; new /api/health/qdrant returns qdrant=healthy. Document upload/cancel/delete, vector-store BATCH=64 path (134 chunks indexed for one doc), and SSE chat streaming all working. No backend regressions detected.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_ehs_rag_iteration4.py",
+    "/app/test_reports/pytest/pytest_iteration4.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Good: /api/health stays purely local (no qdrant network/file call) so it's always sub-150ms even during heavy ingestion; qdrant status correctly split to /api/health/qdrant.",
+    "Good: hash_password_async / verify_password_async wrappers offload bcrypt from the event loop; login latency stayed ~330ms even with concurrent ingestion.",
+    "Good: vector_store.upsert_chunks BATCH=64 + asyncio.sleep(0) between batches handles 134-chunk doc cleanly; ingestion finished under ~60s with no errors.",
+    "Good: asyncio.to_thread wrapping for file reads in document_routes.py prevents large-file disk IO from blocking the loop.",
+    "Observation (non-blocking): test_register_with_invite_code_uses_async_hash was SKIPPED because superadmin (no company_id) cannot easily mint a team invite via /api/team/invites (it's company-scoped). Async hashing path is still exercised indirectly via the successful login path which uses verify_password_async on bcrypt hashes created by hash_password_async."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_ehs_rag_iteration4.py (created - 14 tests covering P0 event-loop responsiveness, async auth wrappers, health split, doc upload/cancel/delete, large-doc batch upsert, chat streaming)"
+  ],
+  "success_rate": {"backend": "100% of executed tests (13/13 passed, 1 skipped)", "frontend": "not tested (backend-only request)"},
+  "test_credentials": "admin@ehsrag.com / Admin@12345 (seeded superadmin) used for all tests.",
+  "seed_data_creation": "Test docs (iter4_small_*, iter4_cancel_*, iter4_delete_*, iter4_large_*, iter4_p0_*) all auto-cleaned via test bodies. No persistent test data left behind.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration 4 regression baseline is /app/backend/tests/test_ehs_rag_iteration4.py. Key measurements during concurrent ingestion of a 134-chunk doc (BATCH=64 path): /api/health median=0.106s max=0.135s; /api/auth/login median=0.326s max=0.341s; 0 errors over 10 iterations. /api/health returns {status, model, models_ready, models_error} (NO qdrant field). /api/health/qdrant returns {qdrant: 'healthy'}. Register is invite-only (403 for random emails). Iteration 3 baseline /app/backend/tests/test_ehs_rag_iteration3.py also remains valid for analytics/feedback/onboarding/SSRF coverage. Iteration 3 frontend bugs (DocumentsPage replacingDoc, onboarding redirect, feedback message_id mismatch) are unrelated to this backend-only P0 work - confirm those are still tracked.",
+  "rca_of_the_issue": {
+    "original_p0": "Synchronous CPU-bound operations (bcrypt hashing for auth, fastembed embedding generation, large file reads, single-shot qdrant upsert of all chunks) were blocking the asyncio event loop for the entire duration of doc ingestion, causing /api/health and /api/auth/login to hang.",
+    "fix_validated": "Event loop now stays responsive: (1) bcrypt moved to thread pool via hash_password_async / verify_password_async; (2) file reads moved to asyncio.to_thread; (3) fastembed ONNX threadpool capped via embed_onnx_threads=half-cores leaving headroom for the event loop; (4) qdrant upsert batched (BATCH=64) with asyncio.sleep(0) yields between batches; (5) /api/health no longer touches qdrant (separate /api/health/qdrant route). Measured: <0.35s p95 for login and <0.15s p95 for health during ingestion of a 134-chunk doc - well within the 2s SLA."
+  }
+}

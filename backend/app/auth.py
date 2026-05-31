@@ -1,4 +1,5 @@
 """Auth: JWT + bcrypt password hashing."""
+import asyncio
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -23,6 +24,17 @@ def verify_password(plain: str, hashed: str) -> bool:
         return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
     except Exception:
         return False
+
+
+# Async wrappers — bcrypt is a 100-300ms blocking C call. Wrapping in
+# `asyncio.to_thread` keeps the event loop responsive during /auth/login
+# while heavy ingestion / embedding jobs run on other threads.
+async def hash_password_async(password: str) -> str:
+    return await asyncio.to_thread(hash_password, password)
+
+
+async def verify_password_async(plain: str, hashed: str) -> bool:
+    return await asyncio.to_thread(verify_password, plain, hashed)
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:

@@ -128,6 +128,14 @@ class Settings:
         self.embedding_dimensions = int(os.environ.get("EMBEDDING_DIMENSIONS", "384"))
         self.claude_model = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-6")
         self.max_upload_size_mb = int(os.environ.get("MAX_UPLOAD_SIZE_MB", "300"))
+        # Cap ONNX intra-op threads for embedding models so background
+        # ingestion can't monopolize every CPU core (which would slow down
+        # bcrypt-based login and chat streaming). Default: half the cores,
+        # min 2, max 8 — leaves room for concurrent request handling.
+        _cpu = os.cpu_count() or 4
+        self.embed_onnx_threads = int(
+            os.environ.get("EMBED_ONNX_THREADS", str(max(2, min(8, _cpu // 2))))
+        )
 
 
 @lru_cache()

@@ -63,26 +63,40 @@ class VectorStoreService:
     async def upsert_chunks(self, collection_name: str, chunks: list[dict]) -> None:
         if not chunks:
             return
-        texts = [c["text"] for c in chunks]
-        dense_vectors, sparse_vectors = await asyncio.gather(
-            embed_texts(texts),
-            embed_sparse_docs(texts),
-        )
-        points = []
-        for c, d, s in zip(chunks, dense_vectors, sparse_vectors):
-            points.append(PointStruct(
-                id=str(uuid.uuid4()),
-                vector={
-                    DENSE_NAME: d,
-                    SPARSE_NAME: SparseVector(indices=s["indices"], values=s["values"]),
-                },
-                payload={**c["payload"], "chunk_str_id": c["id"]},
-            ))
-        await asyncio.to_thread(
-            self.client.upsert,
-            collection_name=collection_name,
-            points=points,
-        )
+
+        # Batch embedding + upsert to keep memory bounded and let the thread
+        # pool round-robin other async tasks (login, /health, chat) between
+        # batches. Each batch is ~64 chunks; for a 1000-chunk PDF that's
+        # ~16 short threadpool tasks instead of one long 60s+ blocker.
+        BATCH = 64
+        total_upserted = 0
+        for start in range(0, len(chunks), BATCH):
+            batch = chunks[start:start + BATCH]
+            texts = [c["text"] for c in batch]
+            dense_vectors, sparse_vectors = await asyncio.gather(
+                embed_texts(texts),
+                embed_sparse_docs(texts),
+            )
+            points = []
+            for c, d, s in zip(batch, dense_vectors, sparse_vectors):
+                points.append(PointStruct(
+                    id=str(uuid.uuid4()),
+                    vector={
+                        DENSE_NAME: d,
+                        SPARSE_NAME: SparseVector(indices=s["indices"], values=s["values"]),
+                    },
+                    payload={**c["payload"], "chunk_str_id": c["id"]},
+                ))
+            await asyncio.to_thread(
+                self.client.upsert,
+                collection_name=collection_name,
+                points=points,
+            )
+            total_upserted += len(points)
+            # Yield to the event loop between batches so other coroutines
+            # (login, health, chat streaming) can interleave promptly.
+            await asyncio.sleep(0)
+        logger.info(f"Upserted {total_upserted} points to {collection_name}")
 
     # ── Delete ───────────────────────────────────────────────────────────────
 

@@ -22,7 +22,13 @@ def _get_dense() -> TextEmbedding:
     global _dense
     if _dense is None:
         logger.info(f"Loading dense embedding model: {settings.embedding_model}")
-        _dense = TextEmbedding(model_name=settings.embedding_model)
+        # Cap ONNX threads so embedding can't saturate every core. This
+        # keeps CPU headroom for bcrypt-based login + chat streaming while
+        # a big document is being ingested in the background.
+        _dense = TextEmbedding(
+            model_name=settings.embedding_model,
+            threads=settings.embed_onnx_threads,
+        )
     return _dense
 
 
@@ -30,7 +36,10 @@ def _get_sparse() -> SparseTextEmbedding:
     global _sparse
     if _sparse is None:
         logger.info("Loading BM25 sparse embedding model")
-        _sparse = SparseTextEmbedding(model_name="Qdrant/bm25")
+        _sparse = SparseTextEmbedding(
+            model_name="Qdrant/bm25",
+            threads=settings.embed_onnx_threads,
+        )
     return _sparse
 
 
@@ -38,7 +47,10 @@ def _get_reranker() -> TextCrossEncoder:
     global _reranker
     if _reranker is None:
         logger.info("Loading cross-encoder reranker: Xenova/ms-marco-MiniLM-L-6-v2")
-        _reranker = TextCrossEncoder(model_name="Xenova/ms-marco-MiniLM-L-6-v2")
+        _reranker = TextCrossEncoder(
+            model_name="Xenova/ms-marco-MiniLM-L-6-v2",
+            threads=settings.embed_onnx_threads,
+        )
     return _reranker
 
 

@@ -143,19 +143,30 @@ async def health():
     `models_ready` flag lets clients distinguish "alive but warming" from
     "fully ready". Returning 200 here (instead of 503) means Railway / k8s
     don't kill the pod while embedding models finish loading on first boot.
+
+    NOTE: We intentionally do NOT call qdrant here. Qdrant's local file mode
+    serializes every operation behind a single lock, so calling it during a
+    big upsert would block the healthcheck for seconds. Qdrant status is
+    available on the separate /api/health/qdrant endpoint.
     """
+    return {
+        "status": "healthy" if _models_ready["value"] else "warming",
+        "model": settings.claude_model,
+        "models_ready": _models_ready["value"],
+        "models_error": _models_ready["error"],
+    }
+
+
+@api.get("/health/qdrant")
+async def health_qdrant():
+    """Detailed qdrant status — separate from /api/health so a slow vector
+    store can't block the liveness probe."""
     vs = get_vector_store()
     try:
         qdrant_status = await vs.health()
     except Exception as e:
         qdrant_status = f"error: {e}"
-    return {
-        "status": "healthy" if _models_ready["value"] else "warming",
-        "qdrant": qdrant_status,
-        "model": settings.claude_model,
-        "models_ready": _models_ready["value"],
-        "models_error": _models_ready["error"],
-    }
+    return {"qdrant": qdrant_status}
 
 
 @api.get("/health/ready")
