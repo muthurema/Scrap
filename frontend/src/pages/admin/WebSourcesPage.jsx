@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { Plus, Trash, ArrowsClockwise, Warning, CheckCircle, Globe } from "@phosphor-icons/react";
 
@@ -106,7 +106,12 @@ export default function WebSourcesPage() {
             </Button>
           </DialogTrigger>
           <DialogContent className="max-w-xl w-[calc(100%-2rem)] rounded-sm border-slate-300 max-h-[90vh] overflow-y-auto">
-            <DialogHeader><DialogTitle className="font-bold tracking-tight">Add Web Source</DialogTitle></DialogHeader>
+            <DialogHeader>
+              <DialogTitle className="font-bold tracking-tight">Add Web Source</DialogTitle>
+              <DialogDescription className="text-xs text-slate-500">
+                Register a URL to be scraped on a schedule. Its content is embedded into the knowledge base and re-checked for changes at the chosen frequency.
+              </DialogDescription>
+            </DialogHeader>
             <form onSubmit={create} className="space-y-4" data-testid="web-source-form">
               <div className="space-y-1.5">
                 <Label className="font-mono text-xs uppercase tracking-wider">URL</Label>

@@ -373,16 +373,26 @@ export default function ChatPage() {
             {sessions.map((s) => (
               <div
                 key={s.id}
-                role="button"
-                tabIndex={0}
-                onClick={() => loadSession(s.id)}
-                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); loadSession(s.id); } }}
-                data-testid={`session-${s.id}`}
-                className={`w-full text-left px-3 py-2 border border-transparent hover:border-slate-200 hover:bg-slate-50 group transition-colors cursor-pointer ${
+                className={`group w-full px-2 py-2 border border-transparent hover:border-slate-200 hover:bg-slate-50 transition-colors flex items-center gap-1.5 ${
                   currentSessionId === s.id ? "bg-slate-100 border-slate-200" : ""
                 }`}
               >
-                <div className="flex items-center gap-2">
+                <button
+                  onClick={(e) => deleteSession(s.id, e)}
+                  data-testid={`delete-session-${s.id}`}
+                  className="p-1.5 text-slate-400 hover:text-rose-700 hover:bg-rose-50 border border-transparent hover:border-rose-200 shrink-0 transition-colors"
+                  aria-label="Delete chat"
+                  title="Delete chat"
+                >
+                  <Trash size={14} weight="bold" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => loadSession(s.id)}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); loadSession(s.id); } }}
+                  data-testid={`session-${s.id}`}
+                  className="flex-1 min-w-0 text-left flex items-center gap-2 px-1 py-0.5 cursor-pointer"
+                >
                   <ChatCircle size={14} className="text-slate-400 shrink-0" />
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium truncate text-slate-800">{s.title || "Untitled"}</div>
@@ -390,15 +400,7 @@ export default function ChatPage() {
                       {s.message_count} msgs
                     </div>
                   </div>
-                  <button
-                    onClick={(e) => deleteSession(s.id, e)}
-                    className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity"
-                    data-testid={`delete-session-${s.id}`}
-                    aria-label="Delete chat"
-                  >
-                    <Trash size={14} />
-                  </button>
-                </div>
+                </button>
               </div>
             ))}
           </div>

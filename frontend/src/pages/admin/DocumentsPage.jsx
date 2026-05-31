@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { UploadSimple, ArrowsClockwise, Trash, CheckCircle, Warning, Hourglass, ArrowsLeftRight, Clock } from "@phosphor-icons/react";
 
@@ -141,6 +141,9 @@ export default function DocumentsPage() {
           <DialogContent className="max-w-xl w-[calc(100%-2rem)] rounded-sm border-slate-300 max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="font-bold tracking-tight">Upload EHS Document</DialogTitle>
+              <DialogDescription className="text-xs text-slate-500">
+                Upload a PDF, DOCX, XLSX, TXT, CSV or Markdown file. It will be parsed, classified and embedded into the knowledge base for retrieval.
+              </DialogDescription>
             </DialogHeader>
             <form onSubmit={upload} className="space-y-4" data-testid="upload-form">
               <div className="space-y-1.5">
