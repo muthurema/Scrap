@@ -250,6 +250,31 @@ EHS (Environment, Health & Safety) RAG chatbot for Turnstile360 — adapted from
 - Diagnose production hang at rag.turnstile360.com (use Re-seed Corpus button after redeploy)
 - Cleanup `// authenticate` placeholder comments across frontend/backend (P2)
 
+## v3.6 — Production hang on chat.turnstile360.com (Railway) — three stacked bugs (Feb 2026, P0)
+
+### Problem
+On the Railway production deployment, chat answers never appeared on screen. Three contributing root causes (the OOM corrupted the index, the corruption made retrieval return empty, the buffering hid streaming progress):
+
+1. Railway/Cloudflare/Envoy proxies were **buffering the SSE response** until ~2KB of body accumulated, hiding all tokens until end of stream
+2. **Qdrant local index in `ehs_base_knowledge` was corrupted** (`operands could not be broadcast together with shapes (4669,) (4667,)`) after Railway OOM-killed an in-flight ingestion
+3. Per-doc **memory footprint during ingestion** (300MB raw bytes + BATCH=64 upsert + chunks) caused the Railway OOMs that produced (2)
+
+### Fixes (all verified by testing agent iteration_5)
+- `chat_routes.py event_gen` — first SSE frame is now a 2KB `:` comment pad to flush proxy buffers immediately; parallel `keepalive_pings` task emits `:ping\n\n` every 2s through a shared `asyncio.Queue` so live tokens and pings interleave; correct cancellation/cleanup in `finally`
+- `admin_routes.py` — new `POST /api/admin/qdrant/reset?collection=<name>&confirm=true` (superadmin-only) wipes + recreates a Qdrant collection and marks affected Mongo docs as not-processed; allowlist of two collection names; `asyncio.to_thread` for the blocking delete/create
+- `StatsPage.jsx` — new "Reset Base Index" / "Reset Company Index" buttons on Admin → Stats (next to Force Re-seed)
+- `vector_store.py upsert_chunks` — BATCH 64 → 16, `gc.collect()` every 8 batches, explicit `del` of intermediate buffers per iteration
+- `ingestion.py ingest_document` — drops `raw_text` inside the worker thread; calls `chunks.clear()` + `gc.collect()` after upsert
+- `document_routes._process_document_bg` — explicit `del file_bytes; gc.collect()` after ingest returns
+- `RAILWAY_DEPLOY.md` — added troubleshooting rows for both the `operands could not be broadcast` symptom (with pointer to the new admin button) and SSE buffering
+
+### Verified
+- 12/12 iter5 tests passed + 13/13 iter4 regression passed (0 critical, 0 minor that need action)
+- Local smoke: first SSE byte at 88 ms; `:ping` every 2 s; full session→sources→tokens→done in 22 s
+- Ingestion of 105-chunk doc: 27 s (vs 62 s under BATCH=64) — faster *and* lower memory
+- Regression: event-loop responsiveness from v3.5 still holds (login p95 = 326 ms during ingest)
+- Regression baselines: `/app/backend/tests/test_ehs_rag_iteration5.py`, `/app/backend/tests/test_ehs_rag_iteration4.py`
+
 ## v3.5 — Event-loop responsiveness during ingestion (Feb 2026, P0 fix)
 
 ### Problem
