@@ -72,6 +72,38 @@ async def lifespan(app: FastAPI):
     if not _models_ready["value"]:
         logger.error(f"Model pre-load FAILED after 3 attempts: {_models_ready['error']}")
 
+    # Auto-seed first-run admin user if the users collection is empty. Env vars:
+    #   ADMIN_EMAIL / SEED_ADMIN_EMAIL → "admin@ehsrag.com"
+    #   ADMIN_PASSWORD / SEED_ADMIN_PASSWORD → "Admin@12345"
+    #   ADMIN_FULL_NAME → "EHS Superadmin"
+    # This makes Railway deploys self-bootstrap — no shell-in needed.
+    try:
+        import os
+        import uuid
+        from datetime import datetime, timezone
+        from app.db import users_col
+        from app.auth import hash_password
+
+        user_count = await users_col().count_documents({})
+        if user_count == 0:
+            admin_email = os.environ.get("ADMIN_EMAIL") or os.environ.get("SEED_ADMIN_EMAIL", "admin@ehsrag.com")
+            admin_password = os.environ.get("ADMIN_PASSWORD") or os.environ.get("SEED_ADMIN_PASSWORD", "Admin@12345")
+            admin_name = os.environ.get("ADMIN_FULL_NAME", "Platform Owner")
+            await users_col().insert_one({
+                "id": str(uuid.uuid4()),
+                "email": admin_email,
+                "hashed_password": hash_password(admin_password),
+                "full_name": admin_name,
+                "role": "superadmin",
+                "company_id": None,
+                "is_active": True,
+                "needs_onboarding": False,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            })
+            logger.info(f"Auto-seeded first superadmin user: {admin_email}")
+    except Exception as e:
+        logger.warning(f"Auto-seed of admin user skipped: {e}")
+
     start_scheduler()
     yield
     stop_scheduler()
