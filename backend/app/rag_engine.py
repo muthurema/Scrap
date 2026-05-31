@@ -229,7 +229,7 @@ class RAGEngine:
         self,
         query: str,
         candidate_pool: int = 18,
-        top_n: int = 6,
+        top_n: int = 5,
         company_id: Optional[str] = None,
         user_jurisdiction: Optional[str] = None,
         use_hyde: bool = True,

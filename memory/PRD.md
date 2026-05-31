@@ -250,6 +250,22 @@ EHS (Environment, Health & Safety) RAG chatbot for Turnstile360 — adapted from
 - Diagnose production hang at rag.turnstile360.com (use Re-seed Corpus button after redeploy)
 - Cleanup `// authenticate` placeholder comments across frontend/backend (P2)
 
+## v3.9 — Optimization audit follow-up (Feb 2026)
+
+User shared a 12-point optimization guide. Audit: 8/12 already done in v3.6-v3.8, 2 quick wins applied, 2 we deliberately skip (with reason).
+
+### Applied
+- `rag_engine.retrieve()` default `top_n` lowered **6 → 5**. Saves ~200 prompt tokens per chat ⇒ ~300-600ms TTFT win, no quality loss observed.
+
+### Investigated, NOT applied (with reason)
+- **Anthropic prompt caching (`cache_control`)** — would save ~1-3s TTFT *if* it worked. It does not work through the current Emergent LLM Key proxy path (`litellm.acompletion` with `custom_llm_provider="openai"` against Emergent's `/llm` endpoint). The proxy normalizes to OpenAI chat-completions schema, which doesn't carry Anthropic's `cache_control` field. Enabling this would require switching to direct Anthropic API with the user's own Anthropic key — documented as a future backlog item.
+- **Semantic answer cache** — declined: cross-tenant data leak risk (same question must return different company-tier answers per user), plus safety liability if a stale answer is served after an SOP update.
+- **BART chunk compression** — declined: BART-large-CNN is ~1.5GB and ~300ms/chunk on CPU; on a Railway 2GB pod this would *increase* peak memory above what fastembed already uses, with a net latency loss.
+- **Cluster-filtered search** — declined: pays off at 100k+ chunks; our largest collection is <10k. Existing `company_id` + `tier` payload filters already cut search space 80%+.
+
+### Verified
+- Smoke test post-restart: 18s total stream, sources at 4.8s, no errors, 27 tokens streamed.
+
 ## v3.8 — Latency optimizations + 3-tier knowledge architecture (Feb 2026)
 
 User picked option (c) — full plan: latency P0+P1 plus diagram-parity 3-tier model and global URL seed.
