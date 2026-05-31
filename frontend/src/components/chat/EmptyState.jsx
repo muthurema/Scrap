@@ -25,11 +25,11 @@ export function EmptyState({ onPick }) {
 
       <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-slate-500 mb-3">Try one of these</div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-px bg-slate-200">
-        {SUGGESTIONS.map((q, i) => (
+        {SUGGESTIONS.map((q) => (
           <button
-            key={i}
+            key={q}
             onClick={() => onPick(q)}
-            data-testid={`suggestion-${i}`}
+            data-testid={`suggestion-${SUGGESTIONS.indexOf(q)}`}
             className="text-left bg-white p-3 sm:p-4 hover:bg-blue-50 hover:text-blue-900 transition-colors group flex items-start gap-3"
           >
             <Sparkle size={14} weight="bold" className="text-blue-600 mt-1 shrink-0" />

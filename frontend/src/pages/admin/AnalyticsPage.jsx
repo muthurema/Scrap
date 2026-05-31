@@ -155,7 +155,7 @@ function ListBlock({ icon: Icon, title, subtitle, items, render, tone }) {
       </div>
       <div className="divide-y divide-slate-100 max-h-[360px] overflow-y-auto">
         {(items?.length ? items : []).map((it, i) => (
-          <div key={i} className="px-4 py-2.5 hover:bg-slate-50 transition-colors">{render(it)}</div>
+          <div key={it.id ?? it.date ?? it._id ?? `${title}-${i}`} className="px-4 py-2.5 hover:bg-slate-50 transition-colors">{render(it)}</div>
         ))}
         {!items?.length && (
           <div className="px-4 py-6 text-center font-mono text-[10px] uppercase tracking-wider text-slate-400">No data yet</div>

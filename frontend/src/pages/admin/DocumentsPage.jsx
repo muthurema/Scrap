@@ -112,7 +112,14 @@ export default function DocumentsPage() {
           const fresh = data.items.filter((d) => !seen.has(d.id));
           return [...fresh, ...merged];
         });
-      } catch (_) {}
+      } catch (e) {
+        // Silent fail — this is a 5-second poll; next tick retries. Log so
+        // recurring issues are visible in the browser console without
+        // toast-spamming the user.
+        if (process.env.NODE_ENV !== "production") {
+          console.warn("[documents] background poll failed:", e?.message);
+        }
+      }
     }, 5000);
     return () => clearInterval(t);
   }, []);

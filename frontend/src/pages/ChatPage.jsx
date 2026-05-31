@@ -499,7 +499,9 @@ export default function ChatPage() {
                 {activeSources.length === 0 ? (
                   <div className="text-xs text-slate-500 font-mono p-3">Sources will appear after you ask a question</div>
                 ) : (
-                  activeSources.map((s, i) => <SourceCard key={i} index={i + 1} src={s} />)
+                  activeSources.map((s, i) => (
+                    <SourceCard key={s.doc_id ? `${s.doc_id}-${i}` : i} index={i + 1} src={s} />
+                  ))
                 )}
               </div>
             </ScrollArea>
