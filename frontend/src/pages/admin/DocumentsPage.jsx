@@ -127,7 +127,7 @@ export default function DocumentsPage() {
     <div className="p-8 max-w-7xl" data-testid="documents-page">
       <div className="flex items-end justify-between mb-6">
         <div>
-          <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-slate-500 mb-2">// Knowledge base</div>
+          <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-slate-500 mb-2">Knowledge base</div>
           <h1 className="text-4xl font-black tracking-tighter text-slate-900 mb-1">Documents</h1>
           <p className="text-slate-600">Upload, classify and manage the EHS document corpus.</p>
         </div>

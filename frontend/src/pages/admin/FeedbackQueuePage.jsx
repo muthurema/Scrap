@@ -49,7 +49,7 @@ export default function FeedbackQueuePage() {
     <div className="p-8 max-w-5xl" data-testid="feedback-queue-page">
       <div className="flex items-end justify-between mb-6">
         <div>
-          <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-slate-500 mb-2">// Human-in-the-loop</div>
+          <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-slate-500 mb-2">Human-in-the-loop</div>
           <h1 className="text-4xl font-black tracking-tighter text-slate-900 mb-1">Feedback Review</h1>
           <p className="text-slate-600">Answers users flagged as wrong. Your SME annotation becomes authoritative context for future similar questions.</p>
         </div>

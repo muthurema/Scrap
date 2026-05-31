@@ -79,7 +79,7 @@ export default function OnboardingPage() {
             <ShieldCheck size={20} weight="bold" className="text-white" />
           </div>
           <div>
-            <div className="font-mono text-[10px] uppercase tracking-[0.25em] text-slate-500">// One-time setup</div>
+            <div className="font-mono text-[10px] uppercase tracking-[0.25em] text-slate-500">One-time setup</div>
             <div className="font-bold text-xl tracking-tight">Tell us about your work</div>
           </div>
         </div>

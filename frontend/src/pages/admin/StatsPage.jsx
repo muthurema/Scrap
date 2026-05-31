@@ -129,7 +129,7 @@ export default function StatsPage() {
 function Header() {
   return (
     <div>
-      <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-slate-500 mb-2">// System overview</div>
+      <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-slate-500 mb-2">System overview</div>
       <h1 className="text-4xl font-black tracking-tighter text-slate-900 mb-1">Control Room</h1>
       <p className="text-slate-600">Real-time stats across the EHS knowledge graph.</p>
     </div>
@@ -139,7 +139,7 @@ function Header() {
 function Section({ title, children }) {
   return (
     <div className="mt-10">
-      <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-slate-500 mb-3">// {title.toLowerCase()}</div>
+      <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-slate-500 mb-3">{title.toLowerCase()}</div>
       <h2 className="text-xl font-bold tracking-tight text-slate-900 mb-4">{title}</h2>
       {children}
     </div>
@@ -183,7 +183,7 @@ function AuditWidget({ items }) {
     <div className="border border-slate-300 bg-white flex flex-col" data-testid="audit-widget">
       <div className="px-3 py-2 bg-slate-100 border-b border-slate-300 flex items-center gap-2">
         <ShieldCheck size={14} weight="bold" className="text-slate-700" />
-        <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-slate-600 flex-1">// Recent admin activity</div>
+        <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-slate-600 flex-1">Recent admin activity</div>
         <ClockCounterClockwise size={11} className="text-slate-400" />
       </div>
       <div className="flex-1 max-h-[420px] overflow-y-auto">

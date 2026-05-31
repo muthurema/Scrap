@@ -94,7 +94,7 @@ export default function WebSourcesPage() {
     <div className="p-8 max-w-7xl" data-testid="web-sources-page">
       <div className="flex items-end justify-between mb-6">
         <div>
-          <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-slate-500 mb-2">// External knowledge</div>
+          <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-slate-500 mb-2">External knowledge</div>
           <h1 className="text-4xl font-black tracking-tighter text-slate-900 mb-1">Web Sources</h1>
           <p className="text-slate-600">URLs scraped and embedded into the knowledge base.</p>
         </div>

@@ -47,7 +47,7 @@ export default function AcknowledgementsPage() {
     <div className="p-8 max-w-7xl" data-testid="acknowledgements-page">
       <div className="flex items-end justify-between mb-6">
         <div>
-          <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-slate-500 mb-2">// Compliance audit trail</div>
+          <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-slate-500 mb-2">Compliance audit trail</div>
           <h1 className="text-4xl font-black tracking-tighter text-slate-900 mb-1">Acknowledgements</h1>
           <p className="text-slate-600">Immutable evidence that workers read and accepted EHS guidance. Exportable for regulatory audit.</p>
         </div>

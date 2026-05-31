@@ -293,7 +293,7 @@ export default function ChatPage() {
         <ScrollArea className="flex-1 px-2">
           <div className="space-y-px pb-2">
             {sessions.length === 0 && (
-              <div className="px-3 py-4 text-xs text-slate-500 font-mono">// No conversations yet</div>
+              <div className="px-3 py-4 text-xs text-slate-500 font-mono">No conversations yet</div>
             )}
             {sessions.map((s) => (
               <div
@@ -363,7 +363,7 @@ export default function ChatPage() {
       <main className="flex-1 flex flex-col min-w-0">
         <header className="h-14 border-b border-slate-200 bg-white px-6 flex items-center justify-between" data-testid="chat-header">
           <div className="flex items-center gap-3">
-            <div className="font-mono text-[10px] uppercase tracking-[0.25em] text-slate-500">// Session</div>
+            <div className="font-mono text-[10px] uppercase tracking-[0.25em] text-slate-500">Session</div>
             <div className="text-sm font-medium text-slate-800 truncate max-w-md">
               {sessions.find((s) => s.id === currentSessionId)?.title || "New conversation"}
             </div>
@@ -457,7 +457,7 @@ export default function ChatPage() {
             <ScrollArea className="flex-1">
               <div className="p-3 space-y-2">
                 {activeSources.length === 0 ? (
-                  <div className="text-xs text-slate-500 font-mono p-3">// Sources will appear after you ask a question</div>
+                  <div className="text-xs text-slate-500 font-mono p-3">Sources will appear after you ask a question</div>
                 ) : (
                   activeSources.map((s, i) => <SourceCard key={i} index={i + 1} src={s} />)
                 )}
@@ -473,7 +473,7 @@ export default function ChatPage() {
 function EmptyState({ onPick }) {
   return (
     <div className="py-12" data-testid="empty-state">
-      <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-slate-500 mb-3">// AI co-pilot</div>
+      <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-slate-500 mb-3">AI co-pilot</div>
       <h1 className="text-4xl font-black tracking-tighter text-slate-900 mb-3 leading-none">
         What EHS question is on your mind?
       </h1>
@@ -481,7 +481,7 @@ function EmptyState({ onPick }) {
         Ask anything about your safety procedures, permits, HAZOPs, incidents, OSHA standards, ISO requirements or chemical SDS data. I'll search your knowledge base and cite the source.
       </p>
 
-      <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-slate-500 mb-3">// Try one of these</div>
+      <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-slate-500 mb-3">Try one of these</div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-px bg-slate-200">
         {SUGGESTIONS.map((q, i) => (
           <button

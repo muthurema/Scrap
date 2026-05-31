@@ -62,7 +62,7 @@ export default function LoginPage() {
         </div>
 
         <div className="relative z-10 mt-auto">
-          <div className="font-mono text-xs uppercase tracking-[0.2em] text-white/60 mb-3">// AI co-pilot for safety teams</div>
+          <div className="font-mono text-xs uppercase tracking-[0.2em] text-white/60 mb-3">AI co-pilot for safety teams</div>
           <h1 className="text-5xl font-black tracking-tighter leading-[0.95] mb-6">
             Answers grounded in <span className="text-blue-400">your</span> EHS documents.
           </h1>
@@ -97,7 +97,7 @@ export default function LoginPage() {
           </div>
 
           <div className="font-mono text-xs uppercase tracking-[0.25em] text-slate-500 mb-2">
-            {mode === "login" ? "// Authenticate" : "// Create account"}
+            {mode === "login" ? "Authenticate" : "Create account"}
           </div>
           <h2 className="text-3xl font-black tracking-tighter text-slate-900 mb-2">
             {mode === "login" ? "Sign in to continue" : "Get started"}
@@ -193,7 +193,7 @@ export default function LoginPage() {
 
           {mode === "login" && (
             <div className="mt-10 border-t border-slate-200 pt-6">
-              <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-slate-400 mb-2">// Demo credentials</div>
+              <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-slate-400 mb-2">Demo credentials</div>
               <div className="font-mono text-xs text-slate-600 space-y-0.5">
                 <div>admin@ehsrag.com</div>
                 <div>Admin@12345</div>

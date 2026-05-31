@@ -33,7 +33,7 @@ export default function AnalyticsPage() {
 
   return (
     <div className="p-8 max-w-7xl" data-testid="analytics-page">
-      <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-slate-500 mb-2">// Query intelligence</div>
+      <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-slate-500 mb-2">Query intelligence</div>
       <h1 className="text-4xl font-black tracking-tighter text-slate-900 mb-1">Analytics</h1>
       <p className="text-slate-600">Last 30 days · what users ask, what works, what doesn't.</p>
 
@@ -135,7 +135,7 @@ function Tile({ icon: Icon, label, value, sublabel, accent }) {
 function Section({ title, children }) {
   return (
     <div className="mt-10">
-      <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-slate-500 mb-3">// {title.toLowerCase()}</div>
+      <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-slate-500 mb-3">{title.toLowerCase()}</div>
       <h2 className="text-xl font-bold tracking-tight text-slate-900 mb-4">{title}</h2>
       {children}
     </div>
