@@ -171,6 +171,44 @@ Just push to GitHub. Railway auto-builds and deploys on every push to `main`. Yo
 | Login returns "Invalid email or password" on first run | Seed didn't run | Run `python seed.py` via Railway shell |
 | Backend logs show `Dense/Sparse search ... operands could not be broadcast together with shapes (N,) (M,)` | Qdrant index corrupted by a killed (OOM, restart) ingestion mid-write | In the app: **Admin → Stats → "Reset Base Index"** (or "Reset Company Index") to wipe + recreate that collection, then re-upload docs (or run **Force Re-seed Corpus** for the base corpus). The chat will still respond meanwhile but with no retrieved sources from the broken collection. |
 | Chat answers appear all at once after a long pause instead of streaming token-by-token | Reverse-proxy (Railway/Cloudflare/Nginx) buffering the SSE response | Already handled in code: 2KB SSE pad on first chunk + `:ping` keepalive every 2 s + `X-Accel-Buffering: no` header. If still buffered, set Cloudflare → Network → "HTTP/3" **off** and ensure the orange cloud is **grey** for the backend hostname. |
+| Backend pod OOMs repeatedly during large uploads or with a big corpus | Embedded Qdrant + 300MB upload limit + fastembed models all share the backend pod's RAM | (1) Lower max upload size: set `MAX_UPLOAD_SIZE_MB=50` on the backend service. (2) Move Qdrant out of the backend pod — see **"Optional: External Qdrant service"** below. |
+
+
+## Optional: External Qdrant service (recommended at >1GB index size)
+
+By default Qdrant runs **embedded in the backend pod** (file-mode SQLite + HNSW). This is simple but means the vector index lives in your backend's RAM. Once the index passes ~1GB, you'll see periodic OOMs even with healthy upload sizes.
+
+**Fix:** Spin up Qdrant as a **separate Railway service** using the included `Dockerfile.qdrant` + `qdrant.railway.json`. Your backend then connects over Railway's internal network.
+
+### Setup steps
+
+1. **Create a new Railway service** from the same GitHub repo. Set:
+   - **Root Directory:** `/` (repo root)
+   - **Dockerfile Path:** `Dockerfile.qdrant`
+   - **Volume Mount:** `/qdrant/storage` (attach a Railway Volume here — 10GB to start)
+
+2. **Add an internal hostname** in Railway's networking tab (e.g. `qdrant.railway.internal`). Note the port `6333`.
+
+3. **On your backend service**, add the env var:
+   ```
+   QDRANT_URL=http://qdrant.railway.internal:6333
+   ```
+   (Optionally `QDRANT_API_KEY=<your-secret>` if you set `QDRANT__SERVICE__API_KEY` on the Qdrant service.)
+
+4. **Redeploy the backend.** On boot you'll see `Connecting to external Qdrant at http://qdrant.railway.internal:6333` in the logs.
+
+5. **Re-seed the base corpus** (your existing local Qdrant data won't auto-migrate) — go to **Admin → Stats → Force Re-seed Corpus**. Or write a one-time migration script using `qdrant-client` to scroll the old collection and upsert into the new server.
+
+### Expected savings
+- Backend pod RAM drops by **300-800 MB** typically (depending on corpus size)
+- Backend OOMs disappear under normal load
+- Qdrant service can be sized independently (Railway lets you set memory per service)
+- The fastembed model constraint (single-worker) **still applies** to the backend, but is no longer the bottleneck
+
+### Things to know
+- **Network latency:** Internal Railway networking adds ~1-3ms per Qdrant call. Negligible vs the 5-50ms of the embedding itself.
+- **Cold start:** External Qdrant starts in ~3-5s on Railway. If the backend boots faster, the first `/api/health/qdrant` may flap briefly — the `_ensure_collections_sync` call retries internally.
+- **Rolling back:** Just remove the `QDRANT_URL` env var and redeploy. Backend reverts to embedded mode. (Data lives in the volume of the Qdrant service, so it's safe to leave the service running while you fall back.)
 
 ---
 

@@ -1,8 +1,11 @@
 """
-Vector store service — Qdrant local file mode with HYBRID search (dense + sparse BM25)
-plus cross-encoder re-ranking and Reciprocal Rank Fusion.
+Vector store service — Qdrant HYBRID search (dense + sparse BM25) plus
+cross-encoder re-ranking and Reciprocal Rank Fusion. Connects to an
+external Qdrant service when QDRANT_URL is set; otherwise uses the
+embedded local file-mode client.
 """
 import asyncio
+import os
 import uuid
 from typing import Optional, List
 from loguru import logger
@@ -38,8 +41,27 @@ class VectorStoreService:
         return cls._instance
 
     def _init(self):
-        logger.info(f"Initializing Qdrant local at {settings.qdrant_path}")
-        self.client = QdrantClient(path=settings.qdrant_path)
+        # External Qdrant service support — when QDRANT_URL is set we
+        # connect to a remote Qdrant (e.g. a separate Railway service
+        # running the qdrant/qdrant Docker image). This unloads the
+        # vector index out of our app process, reducing peak RAM
+        # dramatically on memory-tight hosts and removing the
+        # single-worker constraint that fastembed + qdrant-local impose.
+        #
+        # When QDRANT_URL is unset we fall back to the embedded local
+        # file-mode client (current default) — zero change for users not
+        # ready to spin up the separate service.
+        qdrant_url = os.environ.get("QDRANT_URL")
+        qdrant_api_key = os.environ.get("QDRANT_API_KEY")  # optional, for Qdrant Cloud
+        if qdrant_url:
+            logger.info(f"Connecting to external Qdrant at {qdrant_url}")
+            if qdrant_api_key:
+                self.client = QdrantClient(url=qdrant_url, api_key=qdrant_api_key)
+            else:
+                self.client = QdrantClient(url=qdrant_url)
+        else:
+            logger.info(f"Initializing local file-mode Qdrant at {settings.qdrant_path}")
+            self.client = QdrantClient(path=settings.qdrant_path)
         self._ensure_collections_sync()
 
     def _ensure_collections_sync(self):

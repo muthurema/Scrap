@@ -250,6 +250,33 @@ EHS (Environment, Health & Safety) RAG chatbot for Turnstile360 — adapted from
 - Diagnose production hang at rag.turnstile360.com (use Re-seed Corpus button after redeploy)
 - Cleanup `// authenticate` placeholder comments across frontend/backend (P2)
 
+## v3.12 — External Qdrant service support (Feb 2026, P0 OOM fix)
+
+User shared a `qdrant_fix.zip` with 4 proposed changes. Audited each:
+
+### Applied (3 of 4)
+- **`vector_store.py _init` — `QDRANT_URL` env var** (additive, zero-risk):
+  - When set, connects to a remote Qdrant via `QdrantClient(url=...)` — optionally with `QDRANT_API_KEY` for Qdrant Cloud
+  - When unset, falls back to the embedded local file-mode client (current default)
+  - Unlocks the architectural change: run Qdrant as a separate Railway service, taking the vector index (300-800MB) out of the backend's RAM
+- **New `/app/Dockerfile.qdrant`** — production-tuned Qdrant Docker image. Uses `qdrant/qdrant:v1.13.3` (pinned for reproducibility), `ON_DISK_PAYLOAD=true`, `MEMMAP_THRESHOLD_KB=20480`, `DEFAULT_SEGMENT_NUMBER=2` to minimize RAM on a 2-4GB Railway tier. Volume mount at `/qdrant/storage`.
+- **New `/app/qdrant.railway.json`** — Railway service config (Dockerfile builder, healthcheck on /healthz, restart-on-failure).
+- **`RAILWAY_DEPLOY.md`** — added a full "Optional: External Qdrant service" section with 5-step setup, expected savings (~300-800MB RAM), rollback instructions, and a new troubleshooting row that points users to either the `MAX_UPLOAD_SIZE_MB` env var or the external-Qdrant path.
+
+### Rejected (1 of 4)
+- **Reranker unload after each rerank call** (`_reranker = None; gc.collect()`):
+  - This would CONTRADICT v3.5–v3.8 work that explicitly cached embedding/reranking models in process. ms-marco-MiniLM-L-6-v2 takes 5–10 s to load (download + ONNX init) cold.
+  - Net effect: save ~150 MB RAM but add **5–10 s of latency to every chat query** — massive UX regression.
+  - The real RAM hogs (dense fastembed ~250 MB + Qdrant index ~300-800 MB) are addressed by the external-Qdrant change above. Memory pressure is solved without touching the reranker.
+
+### Not a code change
+- **`MAX_UPLOAD_SIZE_MB=50`** — already env-driven (default 300 in `config.py`). User sets it on Railway; no code change needed. Documented in the new troubleshooting row.
+
+### Verified
+- Backend boots cleanly with no `QDRANT_URL` → "Initializing local file-mode Qdrant" (current behavior preserved).
+- Backend with `QDRANT_URL=http://nonexistent-test:6333` → "Connecting to external Qdrant at ..." → attempts real connection (errors out as expected for a fake host).
+- Regression: **27/27** across iter5 + iter7 still passing.
+
 ## v3.11 — Bug fix: "answer is generated but not displayed; refresh shows it" (Feb 2026, P0)
 
 ### Symptom
