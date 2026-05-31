@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { UploadSimple, ArrowsClockwise, Trash, CheckCircle, Warning, Hourglass, ArrowsLeftRight, Clock } from "@phosphor-icons/react";
+import { UploadSimple, ArrowsClockwise, Trash, CheckCircle, Warning, Hourglass, ArrowsLeftRight, Clock, X as XIcon } from "@phosphor-icons/react";
 
 const DOC_TYPES = [
   ["general", "General"], ["sop", "SOP / Procedure"], ["incident_report", "Incident Report"],
@@ -32,6 +32,8 @@ export default function DocumentsPage() {
   const fileRef = useRef(null);
   const [busy, setBusy] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(null); // { current, total, currentName, failed: [] }
+  const uploadAbortRef = useRef(null);
+  const cancelRequestedRef = useRef(false);
 
   const [form, setForm] = useState({
     title: "", description: "", doc_type: "general", source: "superadmin",
@@ -56,6 +58,23 @@ export default function DocumentsPage() {
     return () => clearInterval(t);
   }, []);
 
+  const cancelInflightUpload = () => {
+    cancelRequestedRef.current = true;
+    try { uploadAbortRef.current?.abort(); } catch (_) {}
+    toast.message("Cancelling upload…");
+  };
+
+  const cancelIngestion = async (docId, title) => {
+    if (!confirm(`Cancel ingestion of "${title}"? The file will be removed and you can re-upload.`)) return;
+    try {
+      await api.post(`/documents/${docId}/cancel`);
+      toast.success("Cancelled — file removed");
+      load();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Cancel failed");
+    }
+  };
+
   const upload = async (e) => {
     e.preventDefault();
     const files = Array.from(fileRef.current?.files || []);
@@ -68,9 +87,15 @@ export default function DocumentsPage() {
     }
 
     setBusy(true);
+    cancelRequestedRef.current = false;
     const failed = [];
 
     for (let i = 0; i < files.length; i++) {
+      if (cancelRequestedRef.current) {
+        failed.push({ name: files[i].name, error: "Cancelled by user" });
+        for (let j = i + 1; j < files.length; j++) failed.push({ name: files[j].name, error: "Skipped (cancelled)" });
+        break;
+      }
       const file = files[i];
       setUploadProgress({ current: i + 1, total: files.length, currentName: file.name, failed: [...failed] });
       const fd = new FormData();
@@ -86,15 +111,27 @@ export default function DocumentsPage() {
       if (form.jurisdiction) fd.append("jurisdiction", form.jurisdiction);
       if (replacingDoc) fd.append("supersedes_id", replacingDoc.id);
 
+      const controller = new AbortController();
+      uploadAbortRef.current = controller;
       try {
-        await api.post("/documents/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
+        await api.post("/documents/upload", fd, {
+          headers: { "Content-Type": "multipart/form-data" },
+          signal: controller.signal,
+        });
       } catch (err) {
-        failed.push({ name: file.name, error: err?.response?.data?.detail || err.message || "Upload failed" });
+        if (err?.name === "CanceledError" || err?.code === "ERR_CANCELED") {
+          failed.push({ name: file.name, error: "Cancelled by user" });
+        } else {
+          failed.push({ name: file.name, error: err?.response?.data?.detail || err.message || "Upload failed" });
+        }
+      } finally {
+        uploadAbortRef.current = null;
       }
     }
 
     setUploadProgress(null);
     setBusy(false);
+    cancelRequestedRef.current = false;
 
     const successCount = files.length - failed.length;
     if (failed.length === 0) {
@@ -298,7 +335,18 @@ export default function DocumentsPage() {
                 <div className="bg-blue-50 border border-blue-200 p-3 text-xs text-blue-900" data-testid="upload-progress">
                   <div className="flex items-center justify-between font-mono uppercase tracking-wider text-[10px] mb-1.5">
                     <span>Uploading {uploadProgress.current} / {uploadProgress.total}</span>
-                    <span>{Math.round((uploadProgress.current / uploadProgress.total) * 100)}%</span>
+                    <div className="flex items-center gap-2">
+                      <span>{Math.round((uploadProgress.current / uploadProgress.total) * 100)}%</span>
+                      <button
+                        type="button"
+                        onClick={cancelInflightUpload}
+                        data-testid="cancel-upload-btn"
+                        className="px-2 py-0.5 border border-rose-300 bg-white hover:bg-rose-50 text-rose-700 font-mono text-[10px] uppercase tracking-wider transition-colors"
+                        title="Abort the current upload and skip any remaining files"
+                      >
+                        Cancel
+                      </button>
+                    </div>
                   </div>
                   <div className="h-1.5 bg-blue-100 rounded-sm overflow-hidden mb-2">
                     <div
@@ -372,6 +420,16 @@ export default function DocumentsPage() {
                 <td className="px-3 py-2.5 font-mono text-xs text-slate-700">{d.chunk_count}</td>
                 <td className="px-3 py-2.5 text-right">
                   <div className="inline-flex gap-1">
+                    {!d.is_processed && !d.processing_error && (
+                      <button
+                        onClick={() => cancelIngestion(d.id, d.title || d.original_filename)}
+                        data-testid={`cancel-ingestion-${d.id}`}
+                        title="Cancel ingestion (removes file)"
+                        className="p-1.5 text-slate-500 hover:text-rose-700 border border-transparent hover:border-rose-200 hover:bg-rose-50 transition-colors"
+                      >
+                        <XIcon size={14} weight="bold" />
+                      </button>
+                    )}
                     <button
                       onClick={() => openReplace(d)}
                       data-testid={`replace-${d.id}`}

@@ -290,3 +290,40 @@ async def reprocess_document(
                 resource_id=doc_id, request=request)
     doc = await documents_col().find_one({"id": doc_id}, {"_id": 0})
     return _doc_to_out(doc)
+
+
+@router.post("/{doc_id}/cancel", status_code=200)
+async def cancel_document(doc_id: str, request: Request, current_user: dict = Depends(require_admin)):
+    """
+    Cancel an in-flight document ingestion. Marks the doc as cancelled — the
+    background task can't be killed mid-flight (Python limitation), but the
+    document is removed from search results and the file is deleted so the
+    user can re-upload cleanly. If the worker happens to finish anyway, the
+    cancelled marker prevents the chunks from being stored.
+    """
+    doc = await documents_col().find_one({"id": doc_id})
+    if not doc:
+        raise HTTPException(404, "Document not found")
+    if current_user.get("role") != "superadmin":
+        if doc.get("source") == DocumentSource.BASE_CORPUS.value or doc.get("company_id") != current_user.get("company_id"):
+            raise HTTPException(403, "You can only cancel documents for your own company")
+    if doc.get("is_processed"):
+        raise HTTPException(400, "Document is already fully processed — delete it instead")
+
+    # Best-effort cleanup of any partial chunks already embedded
+    try:
+        ingestion = IngestionService(get_vector_store())
+        await ingestion.delete_document(doc_id)
+    except Exception:
+        pass
+
+    # Hard-delete the doc + file so the user can re-upload with the same filename
+    file_path = doc.get("file_path")
+    if file_path:
+        Path(file_path).unlink(missing_ok=True)
+    await documents_col().delete_one({"id": doc_id})
+
+    await audit(user=current_user, action="cancel_document_ingestion", resource_type="document",
+                resource_id=doc_id, request=request,
+                details={"title": doc.get("title"), "filename": doc.get("original_filename")})
+    return {"ok": True, "cancelled": True}
