@@ -250,6 +250,24 @@ EHS (Environment, Health & Safety) RAG chatbot for Turnstile360 — adapted from
 - Diagnose production hang at rag.turnstile360.com (use Re-seed Corpus button after redeploy)
 - Cleanup `// authenticate` placeholder comments across frontend/backend (P2)
 
+## v3.14 — Dockerfile.qdrant: Railway dynamic $PORT handling (Feb 2026)
+
+### Problem
+After fixing the VOLUME issue in v3.13, the Qdrant service built successfully but the Railway healthcheck failed with "Attempt #1 failed with service unavailable... 1/1 replicas never became healthy." The build logs showed the image was created and pushed correctly, but the running container never bound to the port Railway expected.
+
+### Root cause
+Railway assigns a **dynamic `$PORT`** at container start and directs all health checks + internal-network traffic to that port. Qdrant defaults to 6333 and doesn't read `$PORT` directly, so it bound to 6333 while Railway tried to healthcheck on (e.g.) 8080 — service-unavailable on every attempt.
+
+### Fix
+- `Dockerfile.qdrant` — replaced static `ENV QDRANT__SERVICE__HTTP_PORT=6333` with a shell entrypoint that exports `QDRANT__SERVICE__HTTP_PORT=${PORT:-6333}` at runtime then `exec`s the real Qdrant binary
+- `${PORT:-6333}` fallback so the image still works locally outside Railway
+- Removed redundant `EXPOSE 6333/6334` (Railway uses the dynamic port; EXPOSE was misleading)
+- `RAILWAY_DEPLOY.md` — updated the backend env var to use Railway's service-discovery: `QDRANT_URL=http://qdrant.railway.internal:${{Qdrant.PORT}}` (Railway variable reference syntax that auto-resolves the Qdrant service's dynamic port) + a "Why the Dockerfile uses a shell entrypoint" explainer
+
+### Verified
+- `grep` confirms no static `HTTP_PORT=6333`, no `EXPOSE 6333`, ENTRYPOINT shell wrapper in place
+- Local fallback still binds to 6333 when `$PORT` is unset
+
 ## v3.13 — Dockerfile.qdrant: remove VOLUME instruction (Railway-incompatible) (Feb 2026)
 
 ### Problem

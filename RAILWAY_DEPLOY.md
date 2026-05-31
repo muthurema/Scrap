@@ -192,17 +192,22 @@ By default Qdrant runs **embedded in the backend pod** (file-mode SQLite + HNSW)
    - Size: 10 GB to start
    - ⚠️ **Do not add a `VOLUME` instruction to the Dockerfile** — Railway rejects images that declare Docker VOLUMEs at build time. The Dockerfile in this repo intentionally has none; the volume is attached via the dashboard.
 
-3. **Expose the service internally.** Railway → networking → note the internal hostname (e.g. `qdrant.railway.internal`) on port `6333`.
+3. **Expose the service internally.** Railway gives every service a private domain like `qdrant.railway.internal`. You do NOT need to expose a public domain.
 
-4. **On your backend service**, add the env var:
+4. **On your backend service**, reference the Qdrant service's dynamic port via Railway variable references:
    ```
-   QDRANT_URL=http://qdrant.railway.internal:6333
+   QDRANT_URL=http://qdrant.railway.internal:${{Qdrant.PORT}}
    ```
+   Replace `Qdrant` with the exact name of your Qdrant service in Railway. The `${{...}}` syntax is Railway's service-discovery — it auto-resolves the Qdrant service's dynamically-assigned `$PORT` so the backend can reach it even after Railway rotates the port.
+
    (Optionally `QDRANT_API_KEY=<your-secret>` if you set `QDRANT__SERVICE__API_KEY` on the Qdrant service.)
 
-5. **Redeploy the backend.** On boot you'll see `Connecting to external Qdrant at http://qdrant.railway.internal:6333` in the logs.
+5. **Redeploy the backend.** On boot you'll see `Connecting to external Qdrant at http://qdrant.railway.internal:<port>` in the logs.
 
 6. **Re-seed the base corpus** (your existing local Qdrant data won't auto-migrate) — go to **Admin → Stats → Force Re-seed Corpus**. Or write a one-time migration script using `qdrant-client` to scroll the old collection and upsert into the new server.
+
+### Why the Dockerfile uses a shell entrypoint
+Railway assigns each service a dynamic `$PORT` at container start and routes **all health checks + internal network traffic** to that port. Qdrant defaults to port 6333 and ignores `$PORT`, so without a wrapper the healthcheck fails with "service unavailable" and Railway rolls the deploy back. The `Dockerfile.qdrant` in this repo runs a tiny `sh -c` entrypoint that exports `QDRANT__SERVICE__HTTP_PORT=${PORT:-6333}` before launching Qdrant — solves the issue with zero runtime overhead.
 
 ### Expected savings
 - Backend pod RAM drops by **300-800 MB** typically (depending on corpus size)
