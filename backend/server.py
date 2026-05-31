@@ -126,7 +126,29 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
+
+
+# ── Global exception handler ────────────────────────────────────────────────
+# Without this, an uncaught exception in a route returns a response that
+# CORSMiddleware can't always wrap (Starlette can short-circuit before the
+# CORS `send` hook runs). The browser then reports a misleading
+# "No Access-Control-Allow-Origin header" CORS error and a generic
+# `net::ERR_FAILED` instead of the real 500. Catching here guarantees a
+# JSON response is sent, which CORSMiddleware *can* decorate with
+# `Access-Control-Allow-Origin` so the client sees the real error message.
+from fastapi.responses import JSONResponse
+from fastapi import Request as _Request
+
+
+@app.exception_handler(Exception)
+async def _global_exception_handler(request: _Request, exc: Exception):
+    logger.exception(f"Unhandled error on {request.method} {request.url.path}: {exc}")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error", "error": str(exc)[:200]},
+    )
 
 api = APIRouter(prefix="/api")
 

@@ -107,14 +107,25 @@ class VectorStoreService:
     # ── Delete ───────────────────────────────────────────────────────────────
 
     def _delete_sync(self, collection_name: str, doc_id: str):
-        self.client.delete(
-            collection_name=collection_name,
-            points_selector=FilterSelector(
-                filter=Filter(
-                    must=[FieldCondition(key="doc_id", match=MatchValue(value=doc_id))]
-                )
-            ),
-        )
+        # Wrap in try/except so a corrupted collection (numpy broadcast
+        # errors, missing payload index, etc.) doesn't fail the whole
+        # DELETE request. The Mongo doc + file still get cleaned up, and
+        # the chunks become orphaned — picked up next time the operator
+        # runs Admin → Stats → "Reset Base/Company Index".
+        try:
+            self.client.delete(
+                collection_name=collection_name,
+                points_selector=FilterSelector(
+                    filter=Filter(
+                        must=[FieldCondition(key="doc_id", match=MatchValue(value=doc_id))]
+                    )
+                ),
+            )
+        except Exception as e:
+            logger.warning(
+                f"Qdrant delete in {collection_name} for doc_id={doc_id} failed: {e}. "
+                f"Chunks may be orphaned — run /api/admin/qdrant/reset to clean up."
+            )
 
     async def delete_by_doc_id(self, collection_name: str, doc_id: str) -> None:
         await asyncio.to_thread(self._delete_sync, collection_name, doc_id)

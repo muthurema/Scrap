@@ -250,6 +250,25 @@ EHS (Environment, Health & Safety) RAG chatbot for Turnstile360 — adapted from
 - Diagnose production hang at rag.turnstile360.com (use Re-seed Corpus button after redeploy)
 - Cleanup `// authenticate` placeholder comments across frontend/backend (P2)
 
+## v3.7 — CORS error on DELETE /documents/{id} in production (Feb 2026, P0 follow-up)
+
+### Problem
+User reported `Access to XMLHttpRequest at ... has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present` plus `net::ERR_FAILED` when deleting documents from chat.turnstile360.com. Misleading symptom — actually a downstream bug, not CORS misconfiguration. GET/POST/upload from the same origin worked.
+
+### Root cause
+`VectorStoreService._delete_sync` had no try/except. When the operator hit DELETE on a doc whose chunks live in the corrupted `ehs_base_knowledge` collection (the same one throwing `operands could not be broadcast`), qdrant raised an unhandled exception. Starlette terminated the response before CORSMiddleware's `send` hook could attach headers, so the browser saw an aborted connection and reported it as a CORS error.
+
+### Fix
+- `vector_store.py _delete_sync` — wrapped the qdrant `client.delete` call in try/except (like the search methods). On failure: logs a warning pointing the operator at `/api/admin/qdrant/reset`. The DELETE route now always completes (Mongo doc + file get cleaned up; chunks orphaned until the next collection reset).
+- `server.py` — added a global `@app.exception_handler(Exception)` that returns a JSON 500 with CORS-decorated headers. Defense in depth — even an exception we missed will now show the real error in the browser instead of a misleading CORS error.
+- Added `expose_headers=["*"]` to the CORS middleware so SSE-related headers (e.g. cache-control) are visible to client code.
+
+### Verified
+- DELETE on a freshly-uploaded doc: 204 + full CORS headers (`access-control-allow-origin`, `allow-methods: ...DELETE...`, `allow-credentials: true`, `expose-headers: *`)
+- DELETE on a non-existent doc: 404 + same CORS headers
+- SSE chat stream regression: 22-event flow still completes in ~20s
+- Lint: clean
+
 ## v3.6 — Production hang on chat.turnstile360.com (Railway) — three stacked bugs (Feb 2026, P0)
 
 ### Problem
