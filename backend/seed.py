@@ -3,6 +3,7 @@ Seed script: creates admin user + base EHS knowledge corpus.
 Run: cd /app/backend && python seed.py
 """
 import asyncio
+import os
 import uuid
 import sys
 from pathlib import Path

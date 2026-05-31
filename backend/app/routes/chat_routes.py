@@ -224,3 +224,69 @@ async def delete_session(session_id: str, request: Request, current_user: dict =
     await chat_messages_col().delete_many({"session_id": session_id})
     await audit(user=current_user, action="delete_chat_session", resource_type="chat_session",
                 resource_id=session_id, request=request)
+
+
+@router.delete("/sessions", status_code=200)
+async def delete_all_sessions(request: Request, current_user: dict = Depends(get_current_user)):
+    """Delete every session + message owned by the current user."""
+    sessions = await chat_sessions_col().find(
+        {"user_id": current_user["sub"]}, {"_id": 0, "id": 1}
+    ).to_list(None)
+    session_ids = [s["id"] for s in sessions]
+    if not session_ids:
+        return {"deleted_sessions": 0, "deleted_messages": 0}
+    msg_res = await chat_messages_col().delete_many({"session_id": {"$in": session_ids}})
+    sess_res = await chat_sessions_col().delete_many({"user_id": current_user["sub"]})
+    await audit(user=current_user, action="delete_all_chat_sessions", resource_type="chat_session",
+                resource_id=None, request=request,
+                details={"deleted_sessions": sess_res.deleted_count, "deleted_messages": msg_res.deleted_count})
+    return {"deleted_sessions": sess_res.deleted_count, "deleted_messages": msg_res.deleted_count}
+
+
+@router.delete("/messages/{message_id}", status_code=200)
+async def delete_message(message_id: str, request: Request, current_user: dict = Depends(get_current_user)):
+    """
+    Delete an individual message. If it is a user message, also delete the immediately
+    following assistant message (the Q&A pair). If it is an assistant message, delete the
+    preceding user message too. Acknowledged assistant messages cannot be deleted (compliance).
+    """
+    msg = await chat_messages_col().find_one({"id": message_id}, {"_id": 0})
+    if not msg:
+        raise HTTPException(404, "Message not found")
+
+    # Ownership check via session
+    session = await chat_sessions_col().find_one({"id": msg["session_id"], "user_id": current_user["sub"]}, {"_id": 0, "id": 1})
+    if not session:
+        raise HTTPException(403, "Not allowed")
+
+    if msg.get("acknowledged_at"):
+        raise HTTPException(409, "This message has been compliance-acknowledged and cannot be deleted")
+
+    # Find sibling message in the Q&A pair (same session, adjacent created_at)
+    session_id = msg["session_id"]
+    role = msg["role"]
+    created_at = msg["created_at"]
+    sibling = None
+    if role == "user":
+        sibling = await chat_messages_col().find_one(
+            {"session_id": session_id, "role": "assistant", "created_at": {"$gte": created_at}, "id": {"$ne": message_id}},
+            {"_id": 0}, sort=[("created_at", 1)],
+        )
+    else:
+        sibling = await chat_messages_col().find_one(
+            {"session_id": session_id, "role": "user", "created_at": {"$lte": created_at}, "id": {"$ne": message_id}},
+            {"_id": 0}, sort=[("created_at", -1)],
+        )
+
+    ids_to_delete = [message_id]
+    if sibling and not sibling.get("acknowledged_at"):
+        ids_to_delete.append(sibling["id"])
+
+    res = await chat_messages_col().delete_many({"id": {"$in": ids_to_delete}})
+    await chat_sessions_col().update_one(
+        {"id": session_id}, {"$set": {"updated_at": _now_iso()}}
+    )
+    await audit(user=current_user, action="delete_chat_message", resource_type="chat_message",
+                resource_id=message_id, request=request,
+                details={"deleted_count": res.deleted_count, "session_id": session_id})
+    return {"deleted": res.deleted_count}

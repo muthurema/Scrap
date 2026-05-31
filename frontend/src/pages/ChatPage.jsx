@@ -223,14 +223,50 @@ export default function ChatPage() {
   };
 
   const deleteSession = async (sid, e) => {
-    e.stopPropagation();
-    if (!confirm("Delete this session?")) return;
+    e?.stopPropagation();
+    if (!confirm("Delete this chat and all its messages?")) return;
     try {
       await api.delete(`/chat/sessions/${sid}`);
       if (sid === currentSessionId) startNew();
       loadSessions();
+      toast.success("Chat deleted");
     } catch {
       toast.error("Delete failed");
+    }
+  };
+
+  const clearAllSessions = async () => {
+    if (!confirm("Delete ALL your chats? This cannot be undone.")) return;
+    try {
+      const { data } = await api.delete("/chat/sessions");
+      startNew();
+      loadSessions();
+      toast.success(`Cleared ${data.deleted_sessions} chat${data.deleted_sessions === 1 ? "" : "s"}`);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Clear all failed");
+    }
+  };
+
+  const deleteCurrentSession = async () => {
+    if (!currentSessionId) {
+      startNew();
+      return;
+    }
+    await deleteSession(currentSessionId);
+  };
+
+  const deleteMessage = async (messageId) => {
+    if (!confirm("Delete this message (and its paired reply)?")) return;
+    try {
+      await api.delete(`/chat/messages/${messageId}`);
+      const { data } = await api.get(`/chat/sessions/${currentSessionId}/messages`);
+      setMessages(data);
+      const last = [...data].reverse().find((m) => m.role === "assistant");
+      setActiveSources(last?.sources || []);
+      loadSessions();
+      toast.success("Message deleted");
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Delete failed");
     }
   };
 
@@ -316,8 +352,18 @@ export default function ChatPage() {
           </Button>
         </div>
 
-        <div className="px-3 pb-1">
+        <div className="px-3 pb-1 flex items-center justify-between gap-2">
           <div className="font-mono text-[10px] uppercase tracking-[0.25em] text-slate-500 px-1">Recent</div>
+          {sessions.length > 0 && (
+            <button
+              onClick={clearAllSessions}
+              data-testid="clear-all-sessions-btn"
+              className="font-mono text-[10px] uppercase tracking-wider px-1.5 py-0.5 text-slate-500 hover:text-rose-700 hover:bg-rose-50 border border-transparent hover:border-rose-200 transition-colors"
+              title="Delete all chats"
+            >
+              Clear all
+            </button>
+          )}
         </div>
         <ScrollArea className="flex-1 px-2">
           <div className="space-y-px pb-2">
@@ -346,10 +392,11 @@ export default function ChatPage() {
                   </div>
                   <button
                     onClick={(e) => deleteSession(s.id, e)}
-                    className="opacity-0 group-hover:opacity-100 hover:text-rose-600 transition-opacity"
+                    className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity"
                     data-testid={`delete-session-${s.id}`}
+                    aria-label="Delete chat"
                   >
-                    <Trash size={13} />
+                    <Trash size={14} />
                   </button>
                 </div>
               </div>
@@ -406,6 +453,17 @@ export default function ChatPage() {
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            {currentSessionId && messages.length > 0 && (
+              <button
+                onClick={deleteCurrentSession}
+                data-testid="delete-current-chat-btn"
+                className="p-1.5 text-slate-500 hover:text-rose-700 hover:bg-rose-50 border border-transparent hover:border-rose-200 transition-colors"
+                title="Delete this chat"
+                aria-label="Delete this chat"
+              >
+                <Trash size={15} weight="bold" />
+              </button>
+            )}
             <Badge className="rounded-sm bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-50 font-mono text-[10px] uppercase tracking-wider" data-testid="online-badge">
               <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full mr-1.5 inline-block"></span>
               <span className="hidden sm:inline">Claude Sonnet 4.6</span>
@@ -431,6 +489,7 @@ export default function ChatPage() {
                         onFeedback={submitFeedback}
                         onFollowup={(q) => send(q)}
                         onAcknowledge={acknowledgeMessage}
+                        onDelete={deleteMessage}
                       />
                     ))}
                     {sending && messages.length > 0 && messages[messages.length - 1]?.role === "assistant" && !messages[messages.length - 1]?.content && !messages[messages.length - 1]?.sources?.length && (
@@ -538,15 +597,26 @@ function EmptyState({ onPick }) {
   );
 }
 
-function MessageRow({ msg, onCopy, onFeedback, onFollowup, onAcknowledge }) {
+function MessageRow({ msg, onCopy, onFeedback, onFollowup, onAcknowledge, onDelete }) {
   if (msg.role === "user") {
     return (
-      <div className="flex gap-3" data-testid="user-message">
+      <div className="flex gap-3 group" data-testid="user-message">
         <div className="w-8 h-8 bg-blue-600 flex items-center justify-center shrink-0">
           <UserIcon size={16} weight="bold" className="text-white" />
         </div>
         <div className="flex-1 pt-1 min-w-0">
-          <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-slate-500 mb-1">You</div>
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-slate-500">You</div>
+            <button
+              onClick={() => onDelete?.(msg.message_id)}
+              data-testid={`delete-user-msg-${msg.message_id}`}
+              className="p-0.5 text-slate-400 hover:text-rose-600 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity"
+              title="Delete this question and its reply"
+              aria-label="Delete message"
+            >
+              <Trash size={12} weight="bold" />
+            </button>
+          </div>
           <div className="text-slate-800 whitespace-pre-wrap">{msg.content}</div>
         </div>
       </div>
@@ -649,6 +719,16 @@ function MessageRow({ msg, onCopy, onFeedback, onFollowup, onAcknowledge }) {
                 title={msg.is_high_risk ? "High-risk procedure — acknowledgement strongly recommended for compliance" : "I understand and will follow this guidance"}
               >
                 <CheckSquare size={12} weight="bold" /> {msg.is_high_risk ? "Acknowledge (required)" : "I understand"}
+              </button>
+            )}
+            {!msg.acknowledged_at && (
+              <button
+                onClick={() => onDelete?.(msg.message_id)}
+                data-testid={`delete-msg-${msg.message_id}`}
+                className="flex items-center gap-1 text-[10px] font-mono uppercase tracking-wider px-2 py-1 border border-transparent hover:border-rose-200 hover:bg-rose-50 text-slate-500 hover:text-rose-700 transition-colors ml-auto"
+                title="Delete this Q&A pair"
+              >
+                <Trash size={12} weight="bold" /> Delete
               </button>
             )}
           </div>
