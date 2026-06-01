@@ -46,23 +46,29 @@ html, body {
     font-feature-settings: 'cv11', 'ss01';
 }
 
-/* Global doodle wallpaper (referenced via inline style in App.js — the
- * file lives in /public/ehs-doodle.jpg and css-loader can't resolve it
- * from src/ at compile time, so the JSX wrapper sets the background
- * image at runtime). */
+/* Global doodle wallpaper.
+ *
+ * Sits as a FIXED OVERLAY on top of all content (z-index: 9999) with
+ * `mix-blend-mode: multiply` and a very low opacity. The multiply
+ * blend means the doodle's dark strokes subtly darken whatever is
+ * beneath them — so the pattern bleeds through bg-white pages, dark
+ * sidebars, modals, everything — without needing per-page bg changes.
+ * `pointer-events: none` so the overlay never intercepts clicks.
+ * The asset lives in /public so the inline style in App.js sets the
+ * background-image URL at runtime (CSS-loader can't resolve absolute
+ * URLs in src/ at compile time). */
 .app-doodle-bg {
     position: fixed;
     inset: 0;
-    z-index: 0;
+    z-index: 9999;
     pointer-events: none;
     background-repeat: repeat;
-    background-size: 520px auto;
-    opacity: 0.04;
+    background-size: 480px auto;
+    opacity: 0.06;
+    mix-blend-mode: multiply;
 }
 
 #root {
-    position: relative;
-    z-index: 1;
     min-height: 100vh;
 }
 
