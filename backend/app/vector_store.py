@@ -13,7 +13,7 @@ from loguru import logger
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
     Distance, VectorParams, SparseVectorParams, SparseIndexParams,
-    PointStruct, SparseVector,
+    PointStruct, SparseVector, NamedSparseVector, NamedVector,
     Filter, FieldCondition, MatchValue, FilterSelector,
 )
 
@@ -156,9 +156,13 @@ class VectorStoreService:
 
     def _search_dense_sync(self, collection, vector, limit, search_filter):
         try:
+            # NamedVector is required when the qdrant-client is in HTTP
+            # mode (remote service) — the tuple form `(name, vector)` only
+            # works for the local file-mode client. Using NamedVector
+            # explicitly is the canonical form for both modes.
             return self.client.search(
                 collection_name=collection,
-                query_vector=(DENSE_NAME, vector),
+                query_vector=NamedVector(name=DENSE_NAME, vector=vector),
                 limit=limit, query_filter=search_filter, with_payload=True,
             )
         except Exception as e:
@@ -167,11 +171,19 @@ class VectorStoreService:
 
     def _search_sparse_sync(self, collection, sparse_vec, limit, search_filter):
         try:
+            # Same reason as dense: HTTP-mode qdrant-client expects an
+            # explicit NamedSparseVector — the tuple form was only valid
+            # for the local file-mode client and trips a pydantic
+            # validation error on the remote service.
             return self.client.search(
                 collection_name=collection,
-                query_vector=(SPARSE_NAME, SparseVector(
-                    indices=sparse_vec["indices"], values=sparse_vec["values"],
-                )),
+                query_vector=NamedSparseVector(
+                    name=SPARSE_NAME,
+                    vector=SparseVector(
+                        indices=sparse_vec["indices"],
+                        values=sparse_vec["values"],
+                    ),
+                ),
                 limit=limit, query_filter=search_filter, with_payload=True,
             )
         except Exception as e:

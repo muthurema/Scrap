@@ -250,6 +250,32 @@ EHS (Environment, Health & Safety) RAG chatbot for Turnstile360 — adapted from
 - Diagnose production hang at rag.turnstile360.com (use Re-seed Corpus button after redeploy)
 - Cleanup `// authenticate` placeholder comments across frontend/backend (P2)
 
+## v3.15 — External Qdrant search: NamedVector/NamedSparseVector for HTTP-mode (Feb 2026, P0)
+
+### Problem
+After spinning up external Qdrant on Railway (v3.12-v3.14), the chat would generate an answer that was persisted to Mongo but never displayed in the UI — refresh showed it. Backend logs revealed:
+```
+Sparse search in ehs_company_docs failed: 2 validation errors for NamedVector
+  vector.0  Input should be a valid number ... input_value=('indices', [...]), input_type=tuple
+  vector.1  Input should be a valid number ... input_value=('values', [1.0, ...]), input_type=tuple
+```
+Both sparse searches returned [], retrieval collapsed to dense-only, and downstream pydantic chaos in the streaming path eventually triggered the "answer generated but not displayed" symptom from v3.11.
+
+### Root cause
+We were passing the named-vector form as a Python tuple: `query_vector=(SPARSE_NAME, SparseVector(indices=..., values=...))`. That tuple-shorthand only works for the **local file-mode** qdrant-client. The **HTTP-mode** client (now in use because of QDRANT_URL) routes the request through pydantic validation and rejects tuples — it expects an explicit `NamedSparseVector(name=..., vector=SparseVector(...))`. The same issue affected dense search.
+
+### Fix
+`app/vector_store.py` — replaced both tuple forms with their canonical model classes:
+- `_search_dense_sync`: `query_vector=NamedVector(name=DENSE_NAME, vector=vector)`
+- `_search_sparse_sync`: `query_vector=NamedSparseVector(name=SPARSE_NAME, vector=SparseVector(indices=..., values=...))`
+
+These work identically in both local and HTTP modes — no env-var branch needed.
+
+### Verified
+- Live SSE smoke against the dev backend (external Qdrant mode forced via QDRANT_URL): full session→sources→tokens→done flow streams cleanly, 31 tokens, no errors
+- Zero "Sparse search ... failed" or "Dense search ... failed" warnings in backend logs
+- Regression: 27/27 across iter5 + iter7 reliable
+
 ## v3.14 — Dockerfile.qdrant: Railway dynamic $PORT handling (Feb 2026)
 
 ### Problem
