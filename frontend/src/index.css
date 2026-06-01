@@ -46,6 +46,26 @@ html, body {
     font-feature-settings: 'cv11', 'ss01';
 }
 
+/* Global doodle wallpaper (referenced via inline style in App.js — the
+ * file lives in /public/ehs-doodle.jpg and css-loader can't resolve it
+ * from src/ at compile time, so the JSX wrapper sets the background
+ * image at runtime). */
+.app-doodle-bg {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background-repeat: repeat;
+    background-size: 520px auto;
+    opacity: 0.04;
+}
+
+#root {
+    position: relative;
+    z-index: 1;
+    min-height: 100vh;
+}
+
 h1, h2, h3, h4, h5, h6 {
     font-family: 'Chivo', sans-serif;
     letter-spacing: -0.02em;

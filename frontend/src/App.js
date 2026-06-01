@@ -27,6 +27,16 @@ function RequireAuth({ children, roles }) {
 function App() {
   return (
     <AuthProvider>
+      {/* Global doodle wallpaper — fixed, low-opacity tiled background
+          that sits BEHIND every page. Inline style because the asset
+          lives in /public and CSS-loader can't resolve it from src/.
+          Pages with their own solid panels (LoginPage left side,
+          dark chat sidebars) cover this naturally. */}
+      <div
+        aria-hidden="true"
+        className="app-doodle-bg"
+        style={{ backgroundImage: "url('/ehs-doodle.jpg')" }}
+      />
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<LoginPage />} />

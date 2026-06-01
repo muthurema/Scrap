@@ -250,6 +250,40 @@ EHS (Environment, Health & Safety) RAG chatbot for Turnstile360 — adapted from
 - Diagnose production hang at rag.turnstile360.com (use Re-seed Corpus button after redeploy)
 - Cleanup `// authenticate` placeholder comments across frontend/backend (P2)
 
+## v3.17 — Two UI bugs: first-message not rendering + global doodle wallpaper (Feb 2026)
+
+### Bug 1 — First answer of a session streams to Mongo but never renders in the UI (P0)
+
+**Symptom:** User reported "the first answer is the only one not showing up when asked. Refresh shows it." The answer was being persisted to the server and re-appeared on full page reload.
+
+**Root cause:** Stale closure in `ChatPage.jsx`. The `session` SSE event handler queued a `setMessages` BEFORE mutating the closure variable `tempAsstId`:
+```js
+setMessages((prev) => prev.map((m) =>
+  m.message_id === tempAsstId ? { ...m, message_id: data.message_id } : m,
+));
+tempAsstId = data.message_id;   // ← mutation happens AFTER queueing
+```
+React invokes the `setMessages` callback asynchronously during commit. By then `tempAsstId` already equals `data.message_id` (the mutation line is synchronous, the setState is not). The callback's `m.message_id === tempAsstId` comparison became `oldId === newId` — false — so the message_id never got patched in state. Every subsequent token/`done` `setMessages` then looked for the new UUID in a state object still holding the old temp ID — content never landed.
+
+**Fix:** Reordered to capture-and-mutate-first, then queue:
+```js
+const oldTempId = tempAsstId;
+tempAsstId = data.message_id;
+setMessages((prev) => prev.map((m) =>
+  m.message_id === oldTempId ? { ...m, message_id: data.message_id } : m,
+));
+```
+
+### Bug 2 — Doodle wallpaper only on LoginPage left panel + ChatPage EmptyState
+
+**Fix:** Added a single global `app-doodle-bg` wrapper in `App.js` with `position: fixed`, `opacity: 0.04`, `z-index: 0`, tiled at 520px. Inline `style={{ backgroundImage: "url('/ehs-doodle.jpg')" }}` because the asset lives in `/public` and CSS-loader can't resolve it from `src/`. `#root` is z-index 1 so all content sits above. Solid panels (login dark side, dark headers) cover the doodle naturally; off-white gutters and modal scrims now show the texture across every page (admin, chat, login, onboarding).
+
+### Verified
+- SSE smoke: 25-token stream completes cleanly in ~18 s, session→sources→tokens→done flow intact
+- Global doodle wrapper present + correctly styled on `/login` and `/chat` (confirmed via Playwright DOM query)
+- Lint clean
+- No regression of existing per-page doodle layers (LoginPage left panel + EmptyState retain their stronger-opacity local layers)
+
 ## v3.16 — One-time migration + backfill scripts (Feb 2026)
 
 Two helper scripts in `/app/backend` so users adopting external Qdrant (v3.12–v3.15) don't have to re-seed.

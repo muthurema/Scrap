@@ -183,10 +183,19 @@ export default function ChatPage() {
           setCurrentSessionId(data.session_id);
           liveSessionId = data.session_id;
           if (data.message_id) {
-            setMessages((prev) => prev.map((m) =>
-              m.message_id === tempAsstId ? { ...m, message_id: data.message_id } : m,
-            ));
+            // ORDER MATTERS: capture the old temp id, mutate the closure
+            // variable FIRST, then queue setMessages. React invokes the
+            // setMessages callback asynchronously — if we mutated
+            // tempAsstId AFTER queueing, the callback's closure would
+            // already see the new value and the `m.message_id === tempAsstId`
+            // match would FAIL, leaving the message stuck with its temp id.
+            // (Symptom: first answer streams server-side but never renders
+            // until a page refresh reloads messages by their real UUIDs.)
+            const oldTempId = tempAsstId;
             tempAsstId = data.message_id;
+            setMessages((prev) => prev.map((m) =>
+              m.message_id === oldTempId ? { ...m, message_id: data.message_id } : m,
+            ));
           }
         } else if (eventType === "sources") {
           // New payload shape: { sources: [...company-only...], external_count: N }
