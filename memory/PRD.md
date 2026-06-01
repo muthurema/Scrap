@@ -250,6 +250,34 @@ EHS (Environment, Health & Safety) RAG chatbot for Turnstile360 — adapted from
 - Diagnose production hang at rag.turnstile360.com (use Re-seed Corpus button after redeploy)
 - Cleanup `// authenticate` placeholder comments across frontend/backend (P2)
 
+## v3.19 — Jurisdiction defaults + tenant-name redaction in chat answers (Feb 2026)
+
+User reported two issues:
+1. Chat was answering with US OSHA citations even though the deployment is in **India**.
+2. The chat was leaking the user's company / branch name into responses.
+
+### Fix 1 — Jurisdiction-aware regulatory defaults
+`rag_engine.py EHS_SYSTEM_PROMPT_BASE` rule #10 rewritten as a strict per-jurisdiction default:
+- `IN` → Factories Act 1948, BOCW Act 1996, BIS / IS, DGFASLI, State PCBs
+- `UK` → HSE / COSHH / CDM / MHSWR / RIDDOR
+- `EU` → EU Directives / EU-OSHA / ECHA / REACH / CLP
+- `US` → OSHA 29 CFR / EPA / NFPA
+- `AU` → WHS Act / Safe Work Australia / AS-NZS
+- `CA` → Canada Labour Code Part II / CCOHS
+- `GLOBAL` or unset → ISO / ILO / GHS
+
+`_build_context` now emits an explicit `PRIMARY REGULATORY FRAMEWORK FOR THIS USER: <hint>` block at the top of every prompt with a "⚠️ Lead with regulations from this framework. Do NOT default to OSHA / EPA…" warning. The framework hint is sourced from a new `_JURISDICTION_FRAMEWORK_HINT` dict so adding a country is a 1-line change.
+
+### Fix 2 — Tenant-name redaction in chat answers
+- New system-prompt rule #11: "NEVER mention the user's company name, branch name, site name, or any other tenant-identifying string in your answer." Specific override: when asked "what is my company name?", respond "I don't share organisational identifiers in chat — please check your account profile."
+- `_build_context` now replaces the Title for company-tier chunks with the generic string "Company-internal document" before sending to the LLM. The grounding still comes through (chunk body is unchanged) but the LLM can no longer surface a tenant identifier even by accident.
+- Source-panel UI still shows the real title (users need to identify their own docs to validate the answer — this is intentional).
+
+### Verified
+- Live chat test ("What PPE is required for hot work?") with admin's jurisdiction=IN: response leads with "🇮🇳 Indian Regulatory Context (Primary)", cites Factories Act 1948 + BOCW Act 1996, ZERO mentions of OSHA / 29 CFR / 1910 / EPA. Previously this exact query returned OSHA-dominant answers.
+- Tenant identifiers ("acme", "turnstile360", etc.) absent from the answer text.
+- 27/27 iter5 + iter7 regression still passing.
+
 ## v3.18 — Password reset flow (self-service via SMTP magic link) (Feb 2026)
 
 User requested: "Forgot password?" link → magic link emailed → user resets directly. SMTP-only (Gmail/Office365), 15-minute token lifetime.

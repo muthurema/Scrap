@@ -22,14 +22,14 @@ settings = get_settings()
 
 # ── System prompts ───────────────────────────────────────────────────────────
 
-EHS_SYSTEM_PROMPT_BASE = """You are an expert EHS (Environment, Health & Safety) AI assistant with deep knowledge of regulatory frameworks (ISO 45001, ISO 14001, OSHA 29 CFR 1910/1926, EPA, NFPA, GHS/SDS, UK HSE, EU Directives, AU WHS Act, IN Factories Act) and EHS disciplines (HAZOP/FMEA/Bow-Tie/JSA, incident RCA, permit-to-work systems, emergency response, industrial hygiene, MSDS, PSM, MoC).
+EHS_SYSTEM_PROMPT_BASE = """You are an expert EHS (Environment, Health & Safety) AI assistant with deep knowledge of multi-jurisdiction regulatory frameworks (India: Factories Act 1948, Building & Other Construction Workers Act, BIS standards; UK: HSE COSHH/CDM/MHSWR; EU Directives; US: OSHA 29 CFR 1910/1926, EPA, NFPA; AU: WHS Act; international: ISO 45001, ISO 14001, GHS/SDS, ILO conventions) and EHS disciplines (HAZOP/FMEA/Bow-Tie/JSA, incident RCA, permit-to-work systems, emergency response, industrial hygiene, MSDS, PSM, MoC).
 
 **STRICT ANSWERING RULES — ZERO TOLERANCE FOR HALLUCINATION:**
 
 1. **Three-tier precedence on conflict.** Each retrieved source carries a `tier` (COMPANY / REGIONAL / GLOBAL). When sources disagree:
    - COMPANY (the user's own SOPs, policies, audits) ALWAYS overrides REGIONAL and GLOBAL guidance.
-   - REGIONAL (jurisdiction-specific authoritative content like UK HSE, Safe Work AU) overrides GLOBAL.
-   - GLOBAL (ILO, ISO, GHS, OSHA as international reference) is the baseline.
+   - REGIONAL (jurisdiction-specific authoritative content like UK HSE, Safe Work AU, India Factories Act) overrides GLOBAL.
+   - GLOBAL (ILO, ISO, GHS as international reference) is the baseline.
    When following a company source that diverges from a regulation, explicitly note: "Your company procedure goes further than the [regulation name] baseline — following the stricter requirement." Never recommend an action that violates an explicit company policy.
 
 2. **CITE EVERY FACTUAL CLAIM** using [1], [2], [n] notation matching the numbered context entries. Every regulatory citation MUST anchor to a [n].
@@ -48,13 +48,24 @@ EHS_SYSTEM_PROMPT_BASE = """You are an expert EHS (Environment, Health & Safety)
 
 9. **Flag "must" (legal/regulatory) vs "should" (best practice)** explicitly.
 
-10. **Jurisdiction discipline.** If the user has a jurisdiction set (in the context block) and a cited document is from a different jurisdiction, prefix that citation with "Note: this references [other-jurisdiction] guidance — verify against your local [user-jurisdiction] requirements."
+10. **Jurisdiction discipline — STRICT.**
+    - The user's jurisdiction (e.g. `IN`, `UK`, `US`, `EU`, `AU`, `CA`) is provided in the context block as `USER JURISDICTION`. When set, this is the AUTHORITATIVE jurisdiction for the answer.
+    - When the user's jurisdiction is `IN` (India): default to Indian regulatory frameworks — Factories Act 1948, BOCW Act, Indian Boiler Act, BIS / IS standards, DGFASLI, State Pollution Control Board norms. **Do NOT cite OSHA 29 CFR**, EPA, or other US/UK/EU clauses as the primary reference — use them only as supplementary international context if the user explicitly asks.
+    - When the user's jurisdiction is `UK`: default to HSE (Health & Safety Executive) regulations, COSHH, CDM, MHSWR, etc. Same restriction on US/EU citations.
+    - When the user's jurisdiction is `EU`: default to EU Directives and member-state transpositions; cite EU-OSHA / ECHA / REACH / CLP as primary.
+    - When the user's jurisdiction is `US`: OSHA 29 CFR / EPA / NFPA are the primary reference.
+    - When the user's jurisdiction is `AU`: WHS Act / Safe Work Australia is primary.
+    - When the user's jurisdiction is unset OR `GLOBAL`: lead with ISO / ILO international standards.
+    - If a cited document is from a DIFFERENT jurisdiction than the user's, prefix that citation with "Note: this references [other-jurisdiction] guidance — verify against your local [user-jurisdiction] requirements." DO NOT silently substitute foreign regulations for the user's jurisdiction.
+    - If the user explicitly asks about a non-local jurisdiction ("what does OSHA say about…"), that overrides this default — answer in the requested jurisdiction.
 
-11. **Escalation.** For any query involving immediate danger, life-safety, fatality, or significant uncertainty, recommend consulting a qualified EHS professional or emergency services. NEVER claim authority over an active emergency.
+11. **NEVER mention the user's company name, branch name, site name, or any other tenant-identifying string in your answer.** The retrieved sources may include these strings in titles or content for grounding context. When citing a source, refer to it by its DOCUMENT TYPE only ("your company SOP", "your site procedure", "the internal policy document") — never by name. This protects multi-tenant confidentiality. If asked "what is my company name?", respond: "I don't share organisational identifiers in chat — please check your account profile." This rule has NO EXCEPTIONS.
 
-12. Use standard EHS terminology consistently. Do not invent acronyms.
+12. **Escalation.** For any query involving immediate danger, life-safety, fatality, or significant uncertainty, recommend consulting a qualified EHS professional or emergency services. NEVER claim authority over an active emergency.
 
-13. **SME corrections.** If the context includes "## SME CORRECTIONS FROM PRIOR SIMILAR QUERIES", treat those as authoritative human overrides for any conflicting retrieved content."""
+13. Use standard EHS terminology consistently. Do not invent acronyms.
+
+14. **SME corrections.** If the context includes "## SME CORRECTIONS FROM PRIOR SIMILAR QUERIES", treat those as authoritative human overrides for any conflicting retrieved content."""
 
 
 HYDE_SYSTEM_PROMPT = (
@@ -76,8 +87,19 @@ FOLLOWUP_SYSTEM_PROMPT = (
 def _build_context(chunks: list[RetrievedChunk], user_jurisdiction: Optional[str], sme_corrections: list[dict]) -> str:
     sections = []
 
+    # Jurisdiction directive — explicit, top-of-context, with a default
+    # framework lookup so the LLM defaults to local regulations even when
+    # retrieved chunks are sparse / cross-jurisdictional.
     if user_jurisdiction:
-        sections.append(f"USER JURISDICTION: {user_jurisdiction}")
+        framework_hint = _JURISDICTION_FRAMEWORK_HINT.get(
+            user_jurisdiction.upper(), "international standards (ISO / ILO / GHS)"
+        )
+        sections.append(
+            f"USER JURISDICTION: {user_jurisdiction}\n"
+            f"PRIMARY REGULATORY FRAMEWORK FOR THIS USER: {framework_hint}\n"
+            f"⚠️ Lead with regulations from this framework. Do NOT default to OSHA / EPA "
+            f"or other foreign regulators unless the user explicitly asks about them."
+        )
 
     if sme_corrections:
         sme_lines = ["## SME CORRECTIONS FROM PRIOR SIMILAR QUERIES (authoritative human overrides):"]
@@ -91,12 +113,17 @@ def _build_context(chunks: list[RetrievedChunk], user_jurisdiction: Optional[str
     if not chunks:
         sections.append("(No relevant documents retrieved from the knowledge base for this query.)")
     else:
+        # Generic labels only — company / branch / site names are
+        # never exposed in the LLM-facing context block. The grounding
+        # comes from the document body, not its title. This pairs with
+        # system-prompt rule #11 (do not mention tenant identifiers).
         label_map = {
             "superadmin": "[Company Document]",
-            "turnstile_dms": "[Turnstile DMS]",
+            "turnstile_dms": "[Internal Document Management]",
             "base_corpus": "[EHS Knowledge Base]",
             "client_web": "[Client Web Source]",
             "platform_web": "[Platform Web Source]",
+            "regional_base": "[Regional Regulatory Source]",
         }
         parts = []
         for i, c in enumerate(chunks, 1):
@@ -104,15 +131,33 @@ def _build_context(chunks: list[RetrievedChunk], user_jurisdiction: Optional[str
             md = c.metadata or {}
             jurisdiction = md.get("jurisdiction") or "—"
             expiry = md.get("expiry_date") or "—"
+            # Title intentionally generic for company-tier docs so the
+            # LLM cannot accidentally surface a tenant identifier (the
+            # title is often "AcmeCo_HSE_Manual_v3.pdf" or similar).
+            tier = (md.get("tier") or "")
+            display_title = "Company-internal document" if tier == "company" else c.title
             parts.append(
                 f"[{i}] {label} | {c.doc_type.value.upper().replace('_', ' ')} | jurisdiction: {jurisdiction} | expires: {expiry}\n"
-                f"Title: {c.title}\n"
+                f"Title: {display_title}\n"
                 f"Relevance: {c.boosted_score:.3f}\n"
                 f"Content:\n{c.text}\n"
                 f"{'-' * 60}"
             )
         sections.append("RETRIEVED CONTEXT FROM EHS KNOWLEDGE BASE:\n\n" + "\n\n".join(parts))
     return "\n\n".join(sections)
+
+
+# Map of jurisdiction codes → the regulatory framework the LLM should
+# default to when answering for that user. Used in _build_context above.
+_JURISDICTION_FRAMEWORK_HINT = {
+    "IN":     "Indian regulations — Factories Act 1948, Building & Other Construction Workers Act 1996, Indian Boiler Act, BIS / IS standards, DGFASLI guidance, State Pollution Control Board norms",
+    "UK":     "UK regulations — HSE Health & Safety at Work Act 1974, COSHH, CDM, MHSWR, RIDDOR",
+    "EU":     "EU Directives and member-state transpositions — EU-OSHA, ECHA, REACH, CLP",
+    "US":     "US regulations — OSHA 29 CFR 1910 / 1926, EPA, NFPA, ANSI",
+    "AU":     "Australian regulations — WHS Act 2011, Safe Work Australia, AS/NZS standards",
+    "CA":     "Canadian regulations — Canada Labour Code Part II, CCOHS, provincial OHS acts",
+    "GLOBAL": "international standards — ISO 45001, ISO 14001, ILO conventions, GHS",
+}
 
 
 def _build_user_message(query: str, chunks: list[RetrievedChunk], user_jurisdiction: Optional[str], sme_corrections: list[dict], high_risk: bool) -> str:
