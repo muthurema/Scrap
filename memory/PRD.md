@@ -250,6 +250,29 @@ EHS (Environment, Health & Safety) RAG chatbot for Turnstile360 — adapted from
 - Diagnose production hang at rag.turnstile360.com (use Re-seed Corpus button after redeploy)
 - Cleanup `// authenticate` placeholder comments across frontend/backend (P2)
 
+## v3.16 — One-time migration + backfill scripts (Feb 2026)
+
+Two helper scripts in `/app/backend` so users adopting external Qdrant (v3.12–v3.15) don't have to re-seed.
+
+### 1. `migrate_qdrant_local_to_remote.py`
+- Scrolls every chunk from a local file-mode Qdrant (`QDRANT_LOCAL_PATH` env) and upserts into a remote service (`QDRANT_REMOTE_URL`)
+- Idempotent (uses original point IDs); re-run is safe
+- Preserves both `dense` + `sparse` named vectors and the entire payload
+- Auto-creates the hybrid collection on the remote with the same schema (Distance.COSINE, named sparse) if it doesn't exist
+- Optional `QDRANT_REMOTE_API_KEY` for Qdrant Cloud; `MIGRATE_BATCH` (default 200); `MIGRATE_COLLECTIONS` (default both collections)
+- Verified: refuses to start with clear error messages on missing env / bad paths
+
+### 2. `backfill_chunk_metadata.py`
+- Backfills `tier` and `freshness_ts` on every chunk ingested before v3.8 (when those payload fields were added)
+- `tier` inferred from `source` via the same `SOURCE_TO_TIER` mapping the retriever uses — guaranteed to match new uploads
+- `freshness_ts` filled from the parent document's `ingested_at` / `processed_at` / `created_at` in Mongo (in that priority); falls back to `datetime.now(UTC)` for orphan chunks
+- Uses Qdrant's `set_payload` (incremental update) — never re-embeds, never touches dense/sparse vectors
+- Idempotent: skips chunks that already have both fields
+- Verified: loaded 22 documents from the dev Mongo correctly; clean error on bad Qdrant URL
+
+### Deploy doc updates
+- `RAILWAY_DEPLOY.md` step 6 now walks through both scripts with the exact env-var commands users should run on the Railway backend pod
+
 ## v3.15 — External Qdrant search: NamedVector/NamedSparseVector for HTTP-mode (Feb 2026, P0)
 
 ### Problem

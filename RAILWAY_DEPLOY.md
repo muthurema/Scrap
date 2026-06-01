@@ -204,7 +204,27 @@ By default Qdrant runs **embedded in the backend pod** (file-mode SQLite + HNSW)
 
 5. **Redeploy the backend.** On boot you'll see `Connecting to external Qdrant at http://qdrant.railway.internal:<port>` in the logs.
 
-6. **Re-seed the base corpus** (your existing local Qdrant data won't auto-migrate) — go to **Admin → Stats → Force Re-seed Corpus**. Or write a one-time migration script using `qdrant-client` to scroll the old collection and upsert into the new server.
+6. **Bring over your existing data** (skip if you're OK re-seeding from scratch). Two helper scripts ship in `/app/backend`:
+
+   **A. Migrate vectors from your old embedded Qdrant → the new remote service:**
+   ```bash
+   # Run on the backend pod BEFORE flipping QDRANT_URL (so the old data
+   # is still accessible at the local volume path):
+   QDRANT_LOCAL_PATH=/app/backend/qdrant_data \
+   QDRANT_REMOTE_URL=http://qdrant.railway.internal:${{Qdrant.PORT}} \
+   python /app/backend/migrate_qdrant_local_to_remote.py
+   ```
+   Idempotent: uses original point IDs so re-running just overwrites. ~200 points/batch. For a typical 5–10 k chunk corpus this runs in <60 s.
+
+   **B. Backfill `tier` + `freshness_ts` on chunks ingested before v3.8:**
+   ```bash
+   # Run AFTER you've switched QDRANT_URL — fills in the diagram-parity
+   # metadata on every existing chunk without re-embedding.
+   QDRANT_URL=http://qdrant.railway.internal:${{Qdrant.PORT}} \
+   python /app/backend/backfill_chunk_metadata.py
+   ```
+
+   Otherwise: skip these and use **Admin → Stats → Force Re-seed Corpus** to rebuild the base corpus from scratch (company docs must be re-uploaded manually).
 
 ### Why the Dockerfile uses a shell entrypoint
 Railway assigns each service a dynamic `$PORT` at container start and routes **all health checks + internal network traffic** to that port. Qdrant defaults to port 6333 and ignores `$PORT`, so without a wrapper the healthcheck fails with "service unavailable" and Railway rolls the deploy back. The `Dockerfile.qdrant` in this repo runs a tiny `sh -c` entrypoint that exports `QDRANT__SERVICE__HTTP_PORT=${PORT:-6333}` before launching Qdrant — solves the issue with zero runtime overhead.
