@@ -13,8 +13,8 @@ export default function LoginPage() {
   const { login, register } = useAuth();
   const navigate = useNavigate();
   const [mode, setMode] = useState("login");
-  const [email, setEmail] = useState("admin@ehsrag.com");
-  const [password, setPassword] = useState("Admin@12345");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [inviteCode, setInviteCode] = useState("");
   const [inviteInfo, setInviteInfo] = useState(null); // { valid, role, company_name }
@@ -247,16 +247,6 @@ export default function LoginPage() {
               </>
             )}
           </div>
-
-          {mode === "login" && (
-            <div className="mt-10 border-t border-slate-200 pt-6">
-              <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-slate-400 mb-2">Demo credentials</div>
-              <div className="font-mono text-xs text-slate-600 space-y-0.5">
-                <div>admin@ehsrag.com</div>
-                <div>Admin@12345</div>
-              </div>
-            </div>
-          )}
         </div>
       </div>
     </div>
