@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/lib/auth-context";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -192,7 +192,18 @@ export default function LoginPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password" className="font-mono text-xs uppercase tracking-wider text-slate-700">Password</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="password" className="font-mono text-xs uppercase tracking-wider text-slate-700">Password</Label>
+                {mode === "login" && (
+                  <Link
+                    to="/forgot-password"
+                    data-testid="login-forgot-link"
+                    className="font-mono text-[10px] uppercase tracking-wider text-slate-500 hover:text-blue-700"
+                  >
+                    Forgot?
+                  </Link>
+                )}
+              </div>
               <Input
                 id="password"
                 data-testid="login-password-input"

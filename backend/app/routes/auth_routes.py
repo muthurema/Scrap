@@ -1,13 +1,18 @@
 """Auth routes — JWT-based, with invite-code + email-allowlist signup gating."""
+import os
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.db import users_col, invites_col, allowlist_col, companies_col
-from app.schemas import UserCreate, UserLogin, TokenResponse, UserOut
+from app.schemas import (
+    UserCreate, UserLogin, TokenResponse, UserOut,
+    PasswordResetRequest, PasswordResetConfirm,
+)
 from app.auth import (
     hash_password_async, verify_password_async,
     create_access_token, get_current_user, generate_id,
 )
+from app import password_reset as pwr
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -159,3 +164,70 @@ async def lookup_company(code: str):
         "company_id": inv.get("company_id"),
         "company_name": company.get("name") if company else None,
     }
+
+
+# ── Password reset (self-service) ────────────────────────────────────────────
+# Two endpoints. Intentionally always-200 on request to defeat email
+# enumeration; the magic link is emailed only when the address is real.
+
+@router.post("/password-reset/request", status_code=200)
+async def password_reset_request(payload: PasswordResetRequest, request: Request):
+    email = payload.email.lower().strip()
+
+    # Same 200 response shape for every code path below — no information
+    # leaks about whether the address is registered.
+    generic_ok = {
+        "ok": True,
+        "message": "If that email is registered, a reset link has been sent.",
+    }
+
+    # Soft rate-limit per email so an attacker can't burn a mailbox or
+    # exhaust SMTP quotas. Returns generic OK so the rate-limited caller
+    # also can't distinguish a real account from a fake one.
+    if await pwr.is_rate_limited(email):
+        return generic_ok
+
+    user = await users_col().find_one({"email": email}, {"_id": 0, "id": 1, "email": 1})
+    if not user:
+        return generic_ok
+
+    raw_token = await pwr.create_reset_record(email=email, user_id=user["id"])
+
+    # Build the magic link. PASSWORD_RESET_FRONTEND_URL is set in Railway
+    # (e.g. https://chat.turnstile360.com); for local dev we fall back to
+    # the request's own origin so the link still works against the
+    # preview URL during development.
+    frontend_url = os.environ.get("PASSWORD_RESET_FRONTEND_URL", "").rstrip("/")
+    if not frontend_url:
+        frontend_url = f"{request.url.scheme}://{request.url.netloc}"
+    reset_url = f"{frontend_url}/reset-password?token={raw_token}"
+
+    await pwr.send_reset_email(
+        to_email=email,
+        reset_url=reset_url,
+        expires_min=pwr.TOKEN_TTL_MINUTES,
+    )
+    return generic_ok
+
+
+@router.post("/password-reset/confirm", status_code=200)
+async def password_reset_confirm(payload: PasswordResetConfirm):
+    row = await pwr.consume_reset_token(payload.token)
+    if not row:
+        # 400 (not 401) — the request is well-formed but the token is no
+        # longer valid. Frontend turns this into "Link expired — request
+        # a new one" so the UX is unambiguous.
+        raise HTTPException(400, "Reset link is invalid or has expired. Request a new one.")
+
+    # Rotate the password — bcrypt hashing offloaded so the event loop
+    # stays responsive under concurrent load.
+    new_hash = await hash_password_async(payload.new_password)
+    res = await users_col().update_one(
+        {"id": row["user_id"]},
+        {"$set": {"hashed_password": new_hash, "password_updated_at": _now()}},
+    )
+    if res.matched_count == 0:
+        # Account was deleted between request and confirm. Token is now
+        # consumed; user should re-register or contact admin.
+        raise HTTPException(400, "Account no longer exists.")
+    return {"ok": True, "message": "Password updated. You can now sign in."}

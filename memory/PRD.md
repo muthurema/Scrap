@@ -250,6 +250,65 @@ EHS (Environment, Health & Safety) RAG chatbot for Turnstile360 — adapted from
 - Diagnose production hang at rag.turnstile360.com (use Re-seed Corpus button after redeploy)
 - Cleanup `// authenticate` placeholder comments across frontend/backend (P2)
 
+## v3.18 — Password reset flow (self-service via SMTP magic link) (Feb 2026)
+
+User requested: "Forgot password?" link → magic link emailed → user resets directly. SMTP-only (Gmail/Office365), 15-minute token lifetime.
+
+### Endpoints
+- `POST /api/auth/password-reset/request` — body `{email}`. Always returns 200 (anti-enumeration). When the email exists, generates a 32-byte URL-safe token, persists only `sha256(token)` in Mongo with TTL, and emails a magic link. Rate-limited to 5 active requests per email per hour.
+- `POST /api/auth/password-reset/confirm` — body `{token, new_password}`. Atomic `find_one_and_update` consumes the token row (single-use guard against double-click / parallel-attacker races); on success, rotates the user's bcrypt hash via `hash_password_async`. Returns 400 with a friendly message on invalid/expired/used tokens.
+
+### Module: `/app/backend/app/password_reset.py`
+- `generate_reset_token() → (raw, sha256)` using `secrets.token_urlsafe(32)` (~256 bits)
+- `is_rate_limited(email)` — Mongo count, hourly window
+- `create_reset_record(email, user_id)` — persists hashed token + BSON `expires_at` for TTL
+- `consume_reset_token(raw_token)` — atomic find-one-and-update
+- `send_reset_email(...)` — stdlib `smtplib` in `asyncio.to_thread`; supports both STARTTLS (port 587, default) and SMTPS (port 465). Reads `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_USE_TLS` from env. **Dev fallback:** when SMTP isn't configured, logs the reset URL to backend stderr (visible in Railway logs) — engineers can complete the flow without provisioning email yet. Failures never bubble to the caller (would leak account existence).
+
+### Mongo schema (`password_resets` collection)
+- `id`, `email`, `user_id`, `token_hash` (sha256 hex), `created_at` (iso), `expires_at` (datetime, TTL field), `consumed_at`, `consumed_ip`
+- Indexes: `expires_at` TTL (expireAfterSeconds=0), `token_hash` unique, `(email, created_at desc)` for rate-limit query
+
+### Frontend
+- New `/forgot-password` page — email input → 200 → "Check your inbox" success state with a "Send to a different email" option
+- New `/reset-password?token=...` page — strength-checked password field + confirm field. On success: green confirmation + 3-second auto-redirect to `/login`. On bad/missing token: red error block with "Request a new link" CTA
+- `/login` — new "Forgot?" link next to the Password label (only in login mode, not register)
+- Both pages link back to `/login`
+- Both pages inherit the global doodle wallpaper (v3.17)
+
+### Hardening summary
+1. Tokens hashed at rest (Mongo leak → no usable links)
+2. Anti-enumeration: identical 200 response shape on every request path
+3. Rate limit: 5 active requests/email/hour
+4. Single-use: atomic `find_one_and_update` consume
+5. TTL: 15 minutes (env-overridable via `PASSWORD_RESET_TTL_MIN`)
+6. Mongo TTL index auto-sweeps expired rows
+7. SMTP failure never leaks account state
+8. New password min length 8 (Pydantic-enforced server-side AND client-side toast)
+
+### Verified
+- Full happy path e2e: request → email logged → confirm → old password rejected → new password works → reuse blocked (7/7 hardening checks)
+- Anti-enumeration: unknown email returns identical 200
+- Bad token returns friendly 400
+- Frontend screenshot: forgot-password page renders cleanly with global doodle
+- Lint clean (ruff + ESLint)
+
+### Required Railway env vars (when going live with SMTP)
+```
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USERNAME=alerts@yourdomain.com
+SMTP_PASSWORD=<app-specific-password>
+SMTP_FROM=EHS RAG <alerts@yourdomain.com>
+PASSWORD_RESET_FRONTEND_URL=https://chat.turnstile360.com   # for the magic link
+```
+Optional:
+```
+PASSWORD_RESET_TTL_MIN=15
+PASSWORD_RESET_RATE_LIMIT=5
+SMTP_USE_TLS=true
+```
+
 ## v3.17 — Two UI bugs: first-message not rendering + global doodle wallpaper (Feb 2026)
 
 ### Bug 1 — First answer of a session streams to Mongo but never renders in the UI (P0)
