@@ -250,6 +250,21 @@ EHS (Environment, Health & Safety) RAG chatbot for Turnstile360 — adapted from
 - Diagnose production hang at rag.turnstile360.com (use Re-seed Corpus button after redeploy)
 - Cleanup `// authenticate` placeholder comments across frontend/backend (P2)
 
+## v3.20 — India jurisdiction: OSH Code 2020 as primary (Factories Act 1948 is now transitional) (Feb 2026)
+
+User flagged: Factories Act 1948 is outdated — India consolidated 13 prior labour laws (including Factories Act, BOCW Act, Mines Act, Dock Workers Act, etc.) into the **Occupational Safety, Health and Working Conditions Code 2020 ("OSH Code")**.
+
+### Fix
+- `_JURISDICTION_FRAMEWORK_HINT["IN"]` rewritten: OSH Code 2020 is now the PRIMARY statute. Factories Act / BOCW / Mines Act / Dock Workers are listed only as the laws it consolidated. State-level rules still pending notification can reference the pre-2020 statute as a transitional source — must be explicitly flagged.
+- System-prompt rule #10 (IN clause) updated to match: "Cite the OSH Code 2020 as the PRIMARY reference. Reference the pre-2020 statutes only as transitional sources where state-level OSH Code rules have not yet been notified, and explicitly flag them as such."
+- System-prompt rule #1 (REGIONAL tier example) and the regulator list in `EHS_SYSTEM_PROMPT_BASE` line 25 also updated for consistency.
+
+### Verified
+- Live "What PPE for hot work?" with jurisdiction=IN now leads with: *"Under the Occupational Safety, Health and Working Conditions (OSH) Code 2020, employers must provide… Where state-level rules under the OSH Code are pending notification, the pre-2020 Factories Act 1948 provisions serve as transitional references."*
+- 4 Indian regulation mentions, **0 OSHA/US mentions** (was 6 vs 0 before — still good, but now with correct primary statute)
+- Zero tenant identifiers in answer text
+- Confidence disclosure rule still firing correctly when specific clause numbers aren't in retrieved context
+
 ## v3.19 — Jurisdiction defaults + tenant-name redaction in chat answers (Feb 2026)
 
 User reported two issues:
