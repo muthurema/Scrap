@@ -123,8 +123,8 @@ def _send_smtp_sync(to_email: str, subject: str, html_body: str, text_body: str)
         # In dev / when SMTP isn't configured, fall back to console logging
         # so engineers can still test the flow.
         logger.warning(
-            f"[password-reset] SMTP not configured — would have sent to {to_email}.\n"
-            f"  Subject: {subject}\n"
+            f"[smtp] NOT CONFIGURED — SMTP_HOST/SMTP_USERNAME/SMTP_PASSWORD "
+            f"missing. Would have sent to {to_email}.\n  Subject: {subject}\n"
             f"  Plain body:\n{text_body}"
         )
         return
@@ -135,6 +135,14 @@ def _send_smtp_sync(to_email: str, subject: str, html_body: str, text_body: str)
     msg["To"] = to_email
     msg.set_content(text_body)
     msg.add_alternative(html_body, subtype="html")
+
+    # Positive-confirmation log so success is visible in Railway logs
+    # (otherwise a silent send looks identical to a silent failure when
+    # the user reports "no email arrived").
+    logger.info(
+        f"[smtp] sending → host={host}:{port} from={sender} to={to_email} "
+        f"use_tls={use_tls} mode={'SSL' if port == 465 else 'STARTTLS' if use_tls else 'plain'}"
+    )
 
     if port == 465:
         # SMTPS (implicit TLS)
@@ -148,6 +156,8 @@ def _send_smtp_sync(to_email: str, subject: str, html_body: str, text_body: str)
                 s.starttls(context=ssl.create_default_context())
             s.login(username, password)
             s.send_message(msg)
+
+    logger.info(f"[smtp] delivered to {to_email}")
 
 
 async def send_reset_email(to_email: str, reset_url: str, expires_min: int) -> None:
@@ -179,5 +189,10 @@ async def send_reset_email(to_email: str, reset_url: str, expires_min: int) -> N
         await asyncio.to_thread(_send_smtp_sync, to_email, subject, html_body, text_body)
     except Exception as e:
         # Never let SMTP failure bubble to the caller — that would leak
-        # account existence to whoever requested the reset.
-        logger.warning(f"[password-reset] SMTP delivery to {to_email} failed: {e}")
+        # account existence to whoever requested the reset. We DO log
+        # the full traceback so the operator can diagnose from Railway
+        # logs (`railway logs --service=backend | grep smtp`).
+        logger.exception(
+            f"[smtp] FAILED to deliver reset link to {to_email}: "
+            f"{type(e).__name__}: {e}"
+        )

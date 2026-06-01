@@ -3,7 +3,7 @@ import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/lib/auth-context";
 import {
   ChartBar, FileText, Globe, ArrowLeft, SignOut, User as UserIcon,
-  ChatCenteredDots, ChartLineUp, SealCheck, List, X as XIcon, UsersThree, Buildings,
+  ChatCenteredDots, ChartLineUp, SealCheck, List, X as XIcon, UsersThree, Buildings, GearSix,
 } from "@phosphor-icons/react";
 import { Logo } from "@/components/Logo";
 
@@ -16,6 +16,7 @@ const ALL_NAV = [
   { to: "/admin/acknowledgements", label: "Acknowledgements", icon: SealCheck, testid: "nav-acknowledgements", roles: ["superadmin", "admin"] },
   { to: "/admin/team", label: "Team", icon: UsersThree, testid: "nav-team", roles: ["superadmin", "admin"] },
   { to: "/admin/companies", label: "Companies", icon: Buildings, testid: "nav-companies", roles: ["superadmin"] },
+  { to: "/admin/settings", label: "Settings", icon: GearSix, testid: "nav-settings", roles: ["superadmin"] },
 ];
 
 export default function AdminLayout() {

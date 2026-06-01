@@ -661,3 +661,23 @@ Backend testing agent (iteration_4) — 13/13 passed, 0 critical, 0 minor. Durin
 - `/api/auth/login` median 326ms / max 341ms (was hanging)
 - 0 errors over 10 concurrent iterations
 Regression test baseline: `/app/backend/tests/test_ehs_rag_iteration4.py`
+
+
+## v3.9 — SMTP Diagnostic UI for Password Reset (Feb 2026)
+
+### Problem
+User configured `SMTP_*` env vars on Railway but the forgot-password magic link emails were not arriving. The public `POST /api/auth/password-reset/request` endpoint intentionally returns 200 on every code path (anti-enumeration) and silently swallows SMTP failures — making it impossible to tell from the UI whether SMTP is misconfigured, the password is wrong, the provider is blocking, or the email is just in spam.
+
+### Fix
+- `app/password_reset.py` — `_send_smtp_sync` now logs an INFO line **before** every attempt (`host:port from=… to=… mode=SSL/STARTTLS`) and another INFO line **after** successful delivery. Failures use `logger.exception` (full traceback) instead of a one-line warning. Railway logs now show the exact error.
+- New superadmin-only UI: **Admin → Settings → SMTP Diagnostic** (`/app/frontend/src/pages/admin/SettingsPage.jsx`). Calls the existing `POST /api/admin/smtp/test` endpoint, displays the actual SMTP exception, the live env-var config (host/port/from/use_tls/password_set), and provider-specific hints (Gmail App Password, Office365 SMTP AUTH, port 587 vs 465, etc.).
+- Wired route `/admin/settings` and nav entry (superadmin-only) in `App.js` and `AdminLayout.jsx`.
+
+### How the operator diagnoses now
+1. Log in as superadmin → `/admin/settings`
+2. Enter own email → "Send test"
+3. UI shows either ✅ Delivered (then check spam) or ❌ exact `SMTPAuthenticationError` / `TimeoutError` / `gaierror` with hints
+
+### Verified
+- Self-tested on preview pod (no SMTP env): UI correctly reports `stage: config` with the unset config dump. Backend logs confirm INFO log lines fire on the attempt path.
+- Backend lint clean; frontend lint clean.

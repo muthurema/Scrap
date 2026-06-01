@@ -15,6 +15,7 @@ import FeedbackQueuePage from "@/pages/admin/FeedbackQueuePage";
 import AcknowledgementsPage from "@/pages/admin/AcknowledgementsPage";
 import TeamPage from "@/pages/admin/TeamPage";
 import CompaniesPage from "@/pages/admin/CompaniesPage";
+import SettingsPage from "@/pages/admin/SettingsPage";
 import "@/App.css";
 
 function RequireAuth({ children, roles }) {
@@ -63,6 +64,7 @@ function App() {
             <Route path="acknowledgements" element={<AcknowledgementsPage />} />
             <Route path="team" element={<TeamPage />} />
             <Route path="companies" element={<RequireAuth roles={["superadmin"]}><CompaniesPage /></RequireAuth>} />
+            <Route path="settings" element={<RequireAuth roles={["superadmin"]}><SettingsPage /></RequireAuth>} />
           </Route>
           <Route path="*" element={<Navigate to="/chat" replace />} />
         </Routes>
