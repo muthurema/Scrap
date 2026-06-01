@@ -228,3 +228,65 @@ async def reset_qdrant_collection(
         "note": "Collection wiped & recreated. Re-upload affected documents "
                 "(or POST /api/admin/reseed-corpus?force=true for base corpus).",
     }
+
+
+@router.post("/smtp/test")
+async def smtp_test(
+    request: Request,
+    to: str,
+    current_user: dict = Depends(require_superadmin),
+):
+    """Send a real test email through the configured SMTP and surface the
+    actual error if it fails. Unlike the password-reset endpoint (which
+    silently swallows SMTP errors to prevent email enumeration), this one
+    is superadmin-only and tells you exactly what went wrong.
+
+    Usage from Railway shell:
+        curl -X POST "$API/api/admin/smtp/test?to=you@example.com" \
+             -H "Authorization: Bearer <superadmin token>"
+    """
+    import asyncio as _asyncio
+    import os as _os
+    from app.password_reset import _send_smtp_sync
+
+    cfg = {
+        "host": _os.environ.get("SMTP_HOST", "<unset>"),
+        "port": _os.environ.get("SMTP_PORT", "587 (default)"),
+        "username": _os.environ.get("SMTP_USERNAME", "<unset>"),
+        "from": _os.environ.get("SMTP_FROM") or _os.environ.get("SMTP_USERNAME") or "<unset>",
+        "use_tls": _os.environ.get("SMTP_USE_TLS", "true (default)"),
+        "password_set": bool(_os.environ.get("SMTP_PASSWORD")),
+    }
+    if cfg["host"] == "<unset>" or cfg["username"] == "<unset>" or not cfg["password_set"]:
+        return {
+            "ok": False,
+            "stage": "config",
+            "error": "SMTP_HOST / SMTP_USERNAME / SMTP_PASSWORD are not all set in env",
+            "config": cfg,
+        }
+
+    try:
+        await _asyncio.to_thread(
+            _send_smtp_sync,
+            to,
+            "EHS RAG — SMTP test",
+            "<p>This is a test email from your EHS RAG instance.</p>",
+            "This is a test email from your EHS RAG instance.\n",
+        )
+    except Exception as e:
+        return {
+            "ok": False,
+            "stage": "send",
+            "error": f"{type(e).__name__}: {e}",
+            "config": cfg,
+            "hints": [
+                "Gmail: use an App Password (myaccount.google.com/apppasswords), NOT your login password",
+                "Office365: ensure SMTP AUTH is enabled on the mailbox (admin center → mail settings)",
+                "Port 587 needs SMTP_USE_TLS=true (STARTTLS); port 465 uses implicit TLS regardless of that flag",
+                "SMTP_FROM should typically equal SMTP_USERNAME — providers reject mismatched From addresses",
+                "If you see 'connection refused', Railway egress may be blocked — try a different SMTP provider",
+            ],
+        }
+    await audit(user=current_user, action="smtp_test", resource_type="smtp",
+                resource_id=to, request=request, details={"to": to})
+    return {"ok": True, "config": cfg, "note": f"Sent test email to {to}. Check the inbox (and spam folder)."}
