@@ -19,6 +19,27 @@ router = APIRouter(prefix="/documents", tags=["Documents"])
 
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".xlsx", ".xls", ".txt", ".csv", ".md", ".png", ".jpg", ".jpeg"}
 MAX_SIZE_BYTES = settings.max_upload_size_mb * 1024 * 1024
+# Memory-safety cap: no more than this many docs may be queued/in-flight per
+# scope at once. Each in-flight doc holds embedding-model state + file bytes
+# in the background task — too many concurrent ingestions OOM the Railway
+# pod. The cap also enforces "wait until current batch finishes" UX (the
+# frontend disables Upload while any doc is still processing).
+MAX_INFLIGHT_PER_SCOPE = 5
+
+
+def _inflight_scope_query(user: dict) -> dict:
+    """Mongo filter for the user's 'in-flight' (queued / chunking) docs.
+
+    Superadmin uploads go to global/regional (company_id=None); admins to
+    their own company. We don't count `processing_error` rows — those are
+    failed docs the user can delete; they're not consuming a worker slot.
+    """
+    q: dict = {"is_processed": False, "processing_error": None}
+    if user.get("role") == "superadmin":
+        q["company_id"] = None
+    else:
+        q["company_id"] = user.get("company_id")
+    return q
 
 
 def _now_iso():
@@ -94,6 +115,20 @@ async def _process_document_bg(doc_id: str, file_path: str, file_ext: str):
         )
 
 
+@router.get("/upload-quota")
+async def upload_quota(current_user: dict = Depends(require_admin)):
+    """Live in-flight count + remaining slots for the upload button gating
+    on the frontend. Returns the user's own scope (admin→company,
+    superadmin→global)."""
+    inflight = await documents_col().count_documents(_inflight_scope_query(current_user))
+    return {
+        "inflight": inflight,
+        "max": MAX_INFLIGHT_PER_SCOPE,
+        "remaining": max(0, MAX_INFLIGHT_PER_SCOPE - inflight),
+        "can_upload": inflight == 0,
+    }
+
+
 @router.post("/upload", response_model=DocumentOut, status_code=201)
 async def upload_document(
     background_tasks: BackgroundTasks,
@@ -133,6 +168,22 @@ async def upload_document(
         # Admins always upload to their own company; force the source.
         source = DocumentSource.SUPERADMIN.value
         company_id_for_doc = current_user["company_id"]
+
+    # ── Concurrent-ingestion cap (memory safety) ──────────────────────────
+    # Reject the upload if this user's scope already has MAX_INFLIGHT_PER_SCOPE
+    # docs queued or chunking. The frontend ALSO disables the upload button
+    # while any doc is in-flight (so the typical user never hits this 429),
+    # but the server enforces the cap as a hard guarantee against parallel
+    # tabs / API misuse.
+    inflight = await documents_col().count_documents(_inflight_scope_query(current_user))
+    if inflight >= MAX_INFLIGHT_PER_SCOPE:
+        raise HTTPException(
+            429,
+            f"Upload limit reached — {inflight} document(s) are still being "
+            f"processed. Please wait until they finish chunking before "
+            f"uploading more. (Max {MAX_INFLIGHT_PER_SCOPE} in-flight per "
+            f"account.)",
+        )
 
     ext = Path(file.filename).suffix.lower()
     if ext not in ALLOWED_EXTENSIONS:

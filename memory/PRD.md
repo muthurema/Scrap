@@ -681,3 +681,27 @@ User configured `SMTP_*` env vars on Railway but the forgot-password magic link 
 ### Verified
 - Self-tested on preview pod (no SMTP env): UI correctly reports `stage: config` with the unset config dump. Backend logs confirm INFO log lines fire on the attempt path.
 - Backend lint clean; frontend lint clean.
+
+
+## v3.10 — Per-batch upload cap & sequential ingestion gating (Feb 2026)
+
+### Problem
+Company admins were able to queue an unbounded number of document uploads simultaneously. With each in-flight doc holding embedding-model state + file bytes for the background task, more than ~5 parallel ingestions reliably OOM-killed the Railway pod (1GB tier). User asked for a hard cap of 5 documents per upload batch, plus a "wait until all are chunked" rule before the next batch is allowed.
+
+### Fix
+- **Backend (`app/routes/document_routes.py`)**
+  - New constant `MAX_INFLIGHT_PER_SCOPE = 5`
+  - Helper `_inflight_scope_query(user)` builds the scope filter (admin → `company_id == user.company_id`, superadmin → `company_id == None`). Excludes errored docs (they don't hold a worker slot).
+  - `upload_document` now rejects with **HTTP 429** when the user's in-flight count is already ≥ 5, with a descriptive `detail` string.
+  - New `GET /api/documents/upload-quota` returns `{inflight, max, remaining, can_upload}` for the frontend.
+- **Frontend (`pages/admin/DocumentsPage.jsx`)**
+  - Polls `/upload-quota` alongside the existing 5-second docs poll.
+  - File picker `onChange` warns the user if they select > 5 files; the form auto-slices to 5.
+  - Upload button label flips to **"WAIT — N PROCESSING"** and is disabled while `inflight > 0` (sequential-batch UX).
+  - In-dialog amber banner explains the wait when the user opens the dialog mid-batch.
+  - Submit button copy: `UPLOAD & PROCESS (MAX 5)`.
+
+### Verified
+- Backend: seeded 5 fake in-flight rows for the Acme admin → `GET /upload-quota` returned `inflight:5, can_upload:false` → `POST /upload` returned **HTTP 429** with the correct detail message.
+- Frontend: with `inflight=1`, the upload button rendered as **"WAIT — 1 PROCESSING"**, was disabled, and clicks were rejected by the browser. With `inflight=0`, button reverted to **"UPLOAD DOCUMENT"** and the dialog opened normally.
+- Lint clean on both files.

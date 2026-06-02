@@ -47,11 +47,28 @@ export default function DocumentsPage() {
     tags: "", version: "", expiry_date: "", jurisdiction: "",
   });
   const [replacingDoc, setReplacingDoc] = useState(null);
+  // Concurrent-ingestion gating. Backend caps in-flight docs at 5 per scope;
+  // we additionally block the *next batch* until the current batch reaches 0.
+  const [quota, setQuota] = useState({ inflight: 0, max: 5, remaining: 5, can_upload: true });
+  const [selectedCount, setSelectedCount] = useState(0);
+
+  const MAX_BATCH = 5;
+
+  const loadQuota = async () => {
+    try {
+      const { data } = await api.get("/documents/upload-quota");
+      setQuota(data);
+    } catch (_e) { /* admin role may not allow — silent */ }
+  };
 
   // Reload from page 1 (used after upload / delete / cancel / first mount + poll)
   const load = async () => {
     try {
-      const { data } = await api.get(`/documents/?page=1&page_size=${PAGE_SIZE}`);
+      const [docsR] = await Promise.all([
+        api.get(`/documents/?page=1&page_size=${PAGE_SIZE}`),
+        loadQuota(),
+      ]);
+      const data = docsR.data;
       setDocs(data.items);
       setTotalDocs(data.total ?? data.items.length);
       setPage(1);
@@ -102,7 +119,11 @@ export default function DocumentsPage() {
   useEffect(() => {
     const t = setInterval(async () => {
       try {
-        const { data } = await api.get(`/documents/?page=1&page_size=${PAGE_SIZE}`);
+        const [docsR] = await Promise.all([
+          api.get(`/documents/?page=1&page_size=${PAGE_SIZE}`),
+          loadQuota(),
+        ]);
+        const data = docsR.data;
         setTotalDocs(data.total ?? 0);
         setDocs((prev) => {
           const updateMap = new Map(data.items.map((d) => [d.id, d]));
@@ -153,10 +174,25 @@ export default function DocumentsPage() {
     }
   };
 
+  const onFilesChosen = () => {
+    const files = Array.from(fileRef.current?.files || []);
+    if (files.length > MAX_BATCH) {
+      toast.warning(
+        `Only ${MAX_BATCH} files can be uploaded per batch. The first ${MAX_BATCH} will be used.`,
+        { duration: 6000 },
+      );
+    }
+    setSelectedCount(Math.min(files.length, MAX_BATCH));
+  };
+
   const upload = async (e) => {
     e.preventDefault();
-    const files = Array.from(fileRef.current?.files || []);
-    if (files.length === 0) { toast.error("Pick at least one file"); return; }
+    const allFiles = Array.from(fileRef.current?.files || []);
+    if (allFiles.length === 0) { toast.error("Pick at least one file"); return; }
+
+    // Enforce the per-batch cap on the client too (server enforces a hard
+    // 5-in-flight cap, but slicing here gives a cleaner UX message).
+    const files = replacingDoc ? allFiles.slice(0, 1) : allFiles.slice(0, MAX_BATCH);
 
     // Replace flow accepts a single file
     if (replacingDoc && files.length > 1) {
@@ -292,9 +328,18 @@ export default function DocumentsPage() {
         </div>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
-            <Button data-testid="open-upload-dialog-btn" className="rounded-sm bg-slate-900 hover:bg-slate-800 text-white h-10 self-start sm:self-auto">
+            <Button
+              data-testid="open-upload-dialog-btn"
+              disabled={!quota.can_upload && !replacingDoc}
+              title={!quota.can_upload ? `${quota.inflight} document(s) still processing — wait until they finish` : undefined}
+              className="rounded-sm bg-slate-900 hover:bg-slate-800 disabled:bg-slate-400 disabled:cursor-not-allowed text-white h-10 self-start sm:self-auto"
+            >
               <UploadSimple size={16} weight="bold" />
-              <span className="ml-2 font-semibold tracking-tight">UPLOAD DOCUMENT</span>
+              <span className="ml-2 font-semibold tracking-tight">
+                {!quota.can_upload
+                  ? `WAIT — ${quota.inflight} PROCESSING`
+                  : "UPLOAD DOCUMENT"}
+              </span>
             </Button>
           </DialogTrigger>
           <DialogContent className="max-w-xl w-[calc(100%-2rem)] rounded-sm border-slate-300 max-h-[90vh] overflow-y-auto">
@@ -316,11 +361,17 @@ export default function DocumentsPage() {
                   multiple={!replacingDoc}
                   accept=".pdf,.docx,.xlsx,.xls,.txt,.csv,.md"
                   data-testid="upload-file-input"
+                  onChange={onFilesChosen}
                   className="block w-full text-sm border border-slate-300 rounded-sm file:mr-3 file:py-2 file:px-3 file:bg-slate-900 file:text-white file:border-0 file:font-medium file:cursor-pointer hover:file:bg-slate-800"
                 />
                 {!replacingDoc && (
                   <div className="text-[11px] text-slate-500 leading-snug">
-                    Bulk upload: hold <span className="font-mono font-semibold">Ctrl</span> / <span className="font-mono font-semibold">⌘</span> in the file picker to select many files. Settings (type, source, tags, jurisdiction) apply to every file in the batch.
+                    Bulk upload: hold <span className="font-mono font-semibold">Ctrl</span> / <span className="font-mono font-semibold">⌘</span> in the file picker to select up to <span className="font-mono font-semibold">{MAX_BATCH}</span> files at once. Settings (type, source, tags, jurisdiction) apply to every file in the batch.
+                    {selectedCount > 0 && (
+                      <span className="ml-1 font-mono font-semibold text-slate-700">
+                        · {selectedCount}/{MAX_BATCH} selected
+                      </span>
+                    )}
                   </div>
                 )}
               </div>
@@ -441,15 +492,29 @@ export default function DocumentsPage() {
                   )}
                 </div>
               )}
+              {!quota.can_upload && !replacingDoc && (
+                <div className="bg-amber-50 border border-amber-200 p-3 text-xs text-amber-900" data-testid="upload-blocked-banner">
+                  <div className="flex items-center gap-1.5 font-bold uppercase tracking-wider mb-1">
+                    <Hourglass size={12} weight="bold" /> Wait — batch in progress
+                  </div>
+                  <div>
+                    {quota.inflight} document{quota.inflight === 1 ? "" : "s"} still being chunked.
+                    To protect server memory, you can upload the next batch only once these
+                    are fully processed. Max {quota.max} documents per batch.
+                  </div>
+                </div>
+              )}
               <Button
                 type="submit"
-                disabled={busy}
+                disabled={busy || (!quota.can_upload && !replacingDoc)}
                 data-testid="submit-upload-btn"
-                className="w-full rounded-sm bg-blue-600 hover:bg-blue-700 text-white h-10 font-semibold tracking-tight"
+                className="w-full rounded-sm bg-blue-600 hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed text-white h-10 font-semibold tracking-tight"
               >
                 {busy
                   ? (uploadProgress ? `UPLOADING ${uploadProgress.current}/${uploadProgress.total}…` : (replacingDoc ? "REPLACING..." : "UPLOADING..."))
-                  : (replacingDoc ? "UPLOAD REPLACEMENT" : "UPLOAD & PROCESS")}
+                  : (!quota.can_upload && !replacingDoc)
+                    ? `WAIT — ${quota.inflight} PROCESSING`
+                    : (replacingDoc ? "UPLOAD REPLACEMENT" : `UPLOAD & PROCESS (MAX ${MAX_BATCH})`)}
               </Button>
             </form>
           </DialogContent>
