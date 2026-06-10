@@ -24,7 +24,7 @@ sys.path.insert(0, "/app/backend")
 from dotenv import load_dotenv  # noqa: E402
 load_dotenv("/app/backend/.env")
 
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://vigilant-chatterjee-8.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://ehs-rag-chat.preview.emergentagent.com").rstrip("/")
 API = f"{BASE_URL}/api"
 
 SUPERADMIN = {"email": "admin@ehsrag.com", "password": "Admin@12345"}

@@ -5,7 +5,7 @@ import json
 import pytest
 import requests
 
-BASE_URL = (os.environ.get("REACT_APP_BACKEND_URL") or "https://vigilant-chatterjee-8.preview.emergentagent.com").rstrip("/")
+BASE_URL = (os.environ.get("REACT_APP_BACKEND_URL") or "https://ehs-rag-chat.preview.emergentagent.com").rstrip("/")
 API = f"{BASE_URL}/api"
 
 ADMIN_EMAIL = os.environ.get("EHS_TEST_ADMIN_EMAIL", "admin@ehsrag.com")

@@ -1,0 +1,122 @@
+<analysis>**original_problem_statement**: 
+Initial user request: Build and refine a full-stack Environment, Health & Safety (EHS) Intelligent RAG chatbot. The goal is to provide a production-ready system with hybrid search, streaming chat UI, document versioning, user RBAC, multi-tenant workspaces, image/vision analysis capabilities, and robust admin dashboards.
+
+PRODUCT REQUIREMENTS:
+- **RAG & Search**: Hybrid search (BM25 + dense), Cross-encoder Re-ranking, external Qdrant service.
+- **Admin & Compliance**: Acknowledgement workflows, document expiry, analytics, re-seed corpus functions.
+- **Security & Roles**: Multi-tenant RBAC (, , ), invite-code/email-allowlist joining.
+- **Scalability**: Chunked streaming document uploads, resilient model loading, Docker/Railway deployment with externalized vector DB. Limit one-time document uploads to 5 to prevent memory overflow and enforce sequential ingestion processing.
+
+**User's preferred language**: English
+*(INSTRUCT next agent to respond in the user's preferred language only)*
+
+**what currently exists?** 
+A production-ready EHS RAG Chatbot featuring a React frontend (with doodle overlay UI) and a FastAPI + MongoDB backend. It utilizes an external Qdrant Vector DB on Railway. Supported by a 3-tier knowledge architecture (Global, Regional, Company) and multi-LLM routing (Emergent Universal Key or direct Anthropic SDK). The application includes a Forgot Password magic link flow with a superadmin Settings diagnostic page to debug SMTP errors. An upload batch-limit cap (max 5 docs per scope) with UI upload-button gating has just been implemented.
+
+**Last working item**: 
+- **Last item agent was working**: Implementing a hard cap of 5 document uploads per batch and enforcing sequential ingestion (restricting new uploads until all processing/chunking is complete) to prevent memory saturation. Added UI state to disable the upload button (WAIT — X PROCESSING) when documents are in-flight.
+- **Status**: USER VERIFICATION PENDING
+- **Agent Testing Done**: Y
+- **Which testing method agent to use?**: NA (Testing already done via backend bash tests, curl, and frontend screenshots validating UI state).
+- **User Testing Done**: N
+
+**All Pending/In progress Issue list**: 
+  Issue 1: SMTP Magic Link Email Delivery (User side Verification / Configuration needed)
+     - Attempted fixes: Agent previously added an SMTP Diagnostic page () to expose swallowed SMTP errors. The system now accurately shows exact provider errors instead of silently failing. 
+     - Next debug checklist: Await user's test of the new diagnostic Settings page to see why their specific SMTP credentials are failing. Provide further debugging steps based on the output if the user shares it.
+     - Why fix this issue and what will be achieved with the fix?: Unblocks self-service password recovery flow for users.
+     - Status: USER VERIFICATION PENDING
+     - Is recurring issue?: N
+     - Should Test frontend/backend/both after fix?: Both (Test SMTP flow via UI).
+     - Blocked on other issue: None
+
+**In progress Task List**: 
+None. 
+
+**Upcoming and Future Tasks**
+  *(Note: User explicitly requested earlier: rest all we can do it later only when I say... do not keep prompting. DO NOT proactively start these without user permission).*
+  Future Tasks:
+  - Task 1: SDS chemical DB integration (PubChem API) for live chemical safety data (P3).
+  - Task 2: Knowledge graph layer to link related regulatory clauses (P3).
+  - Task 3: Incident report integration to pre-fill Turnstile360 reports (P3).
+  - Task 4: One-time tier+freshness_ts backfill script execution for pre-v3.8 chunks (P3).
+
+**Completed work in this session**
+- Added Superadmin Settings Page () for SMTP Diagnostics (DONE).
+- Implemented 5-document limit for in-flight uploads per scope () (DONE).
+- Created  backend endpoint (DONE).
+- Added UI gating/disabling for the Document Upload button while documents are chunking (DONE).
+
+**Earlier issues found/mentioned but not fixed**
+None.
+
+**Known issue recurrence from previous fork**
+- Issue recurrence in previous fork: N/A
+- Recurrence count: 0
+- Status: N/A
+
+**Code Architecture**
+
+
+**Key Technical Concepts**
+- Frontend: React.js, Tailwind CSS, Shadcn UI.
+- Backend: FastAPI, Python 3.11,  for emails.
+- Database: MongoDB (Motor asynchronous).
+- Vector DB: Qdrant (External Railway Service).
+- ML / AI: LiteLLM via Emergent Universal Key, optional Anthropic SDK direct.
+
+**key DB schema**
+  - : {email, hashed_password, role, jurisdiction, company_id}
+  - : {name, industry, priority_boost, invite_codes}
+  - : {title, doc_type, status, version, tier}
+
+**changes in tech stack**
+  - None this session. (Previously: Qdrant uses an external HTTP endpoint).
+
+**All files of reference** 
+  -  (Updated with batch constraints and quota checks).
+  -  (Updated with UI polling and file input caps).
+  -  &  (Updated for SMTP logging and diagnostic test endpoints).
+  -  (New file created for SMTP diagnostic UI).
+
+**Areas that need refactoring**: 
+None currently. Code was recently linted and passed checks cleanly.
+
+**key api endpoints**
+  - : Returns in-flight doc count and max upload constraints.
+  - : Returns 429 if max 5 concurrent in-flight docs threshold is hit.
+  - : Executes a direct SMTP test connection for superadmins.
+
+**Critical Info for New Agent** 
+- **USER INSTRUCTION**: The user previously stated: *rest all we can do it later only when I say... do not keep prompting*. Await explicit commands before generating new features. Wait to hear if they are satisfied with the 5-document limit feature and whether their SMTP is working via the new Diagnostic settings page.
+
+**documents and test reports created in this job** 
+  -  (Updated with Upload Constraints)
+  - 
+
+**Last 10 User Messages and any pending HUMAN messages** 
+ 1. User: Configure Railway SMTP env vars to activate password reset emails already done. rest all we can do it later only when I say... do not keep prompting -> DONE / ACKNOWLEDGED
+ 2. User: the doodle background is not at all visible -> DONE
+ 3. User: I have setup SMTP but I am not receiving the magic link for forgot password -> DONE (Built Settings Diagnostic Page so user can view actual SMTP errors)
+ 4. User: <ask_human_skip> -> ACKNOWLEDGED
+ 5. User: limit the one time upload documents limit to 5 nos at a time for the company admin so the memory will not be exceeded. also allow next upload only when all other docs are chunked and ready -> **COMPLETED (User verification pending)**
+
+**Project Health Check:**
+- All features healthy. No regressions or mocked data.
+
+**3rd Party Integrations** 
+ - Claude 3.5 Sonnet — uses Emergent LLM Key OR direct Anthropic API.
+ - Qdrant Vector DB — External Railway Service.
+ - SMTP Provider — Uses User-provided credentials.
+
+**Testing status**
+  - Testing agent used after significant changes: NO (Used self-testing method via curl and screenshot).
+  - Troubleshoot agent used after agent stuck in loop: NO.
+  - Test files created: None.
+  - Known regressions: None.
+
+**Credentials to test flow:**
+Available in . (Superadmin default:  / ).
+
+**What agent forgot to execute**
+Nothing overlooked. The requested features and issue debug setups were perfectly addressed.</analysis>
