@@ -13,6 +13,7 @@ from app.config import get_settings, DocumentType, DocumentSource
 from app.vector_store import get_vector_store
 from app.ingestion import IngestionService
 from app.audit import audit
+from loguru import logger
 
 settings = get_settings()
 router = APIRouter(prefix="/documents", tags=["Documents"])
@@ -152,6 +153,13 @@ async def upload_document(
     # no company scoping.
     source = DocumentSource.BASE_CORPUS.value
     company_id_for_doc = None
+
+    # Validate doc_type against the enum BEFORE writing anything to Mongo —
+    # an unknown value must 400 cleanly, never poison the collection (a bad
+    # row would otherwise 500 the entire documents list endpoint).
+    valid_doc_types = {t.value for t in DocumentType}
+    if doc_type not in valid_doc_types:
+        raise HTTPException(400, f"Invalid doc_type '{doc_type}'. Allowed: {sorted(valid_doc_types)}")
 
     # ── Concurrent-ingestion cap (memory safety) ──────────────────────────
     # Reject the upload if this user's scope already has MAX_INFLIGHT_PER_SCOPE
@@ -295,7 +303,15 @@ async def list_documents(
     total = await documents_col().count_documents(query)
     cursor = documents_col().find(query, {"_id": 0}).sort("created_at", -1).skip((page - 1) * page_size).limit(page_size)
     docs = await cursor.to_list(page_size)
-    return DocumentListResponse(items=[_doc_to_out(d) for d in docs], total=total)
+    # Defensive: a single legacy / malformed row (e.g. an unknown enum value)
+    # must not 500 the whole list — skip & log it instead.
+    items = []
+    for d in docs:
+        try:
+            items.append(_doc_to_out(d))
+        except Exception as e:
+            logger.warning(f"Skipping un-serialisable document {d.get('id')}: {e}")
+    return DocumentListResponse(items=items, total=total)
 
 
 def _user_can_access_doc(user: dict, doc: dict) -> bool:

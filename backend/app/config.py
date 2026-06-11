@@ -18,6 +18,7 @@ class DocumentType(str, Enum):
     PERMIT = "permit"
     POLICY = "policy"
     MSDS = "msds"
+    BOOK = "book"
     GENERAL = "general"
 
 

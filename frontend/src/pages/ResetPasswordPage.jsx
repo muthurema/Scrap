@@ -53,7 +53,7 @@ export default function ResetPasswordPage() {
   return (
     <div className="min-h-screen bg-white flex items-center justify-center p-6">
       <div className="w-full max-w-md">
-        <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-slate-500 mb-2">EHS RAG</div>
+        <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-slate-500 mb-2">CIDSA RAG</div>
         <h1 className="text-3xl font-bold tracking-tight mb-2">Set a new password</h1>
 
         {done ? (

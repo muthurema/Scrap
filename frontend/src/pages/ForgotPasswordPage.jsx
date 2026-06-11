@@ -31,10 +31,10 @@ export default function ForgotPasswordPage() {
   return (
     <div className="min-h-screen bg-white flex items-center justify-center p-6">
       <div className="w-full max-w-md">
-        <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-slate-500 mb-2">EHS RAG</div>
+        <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-slate-500 mb-2">CIDSA RAG</div>
         <h1 className="text-3xl font-bold tracking-tight mb-2">Forgot password?</h1>
         <p className="text-sm text-slate-600 mb-8 leading-relaxed">
-          Enter the email tied to your EHS account. We'll send you a magic link to reset your password — it expires in 15 minutes.
+          Enter the email tied to your CIDSA account. We'll send you a magic link to reset your password — it expires in 15 minutes.
         </p>
 
         {submitted ? (

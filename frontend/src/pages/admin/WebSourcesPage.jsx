@@ -23,12 +23,12 @@ export default function WebSourcesPage() {
   const [scrapingId, setScrapingId] = useState(null);
 
   const [form, setForm] = useState({
-    url: "https://www.osha.gov/laws-regs/regulations/standardnumber/1910/1910.146",
-    label: "OSHA 1910.146 Confined Spaces",
+    url: "https://www.usgs.gov/faqs/what-map-projection",
+    label: "USGS — Map Projections",
     description: "",
     scope: "platform",
     scrape_frequency: "weekly",
-    doc_type: "regulatory",
+    doc_type: "general",
     crawl_depth: 1,
   });
 

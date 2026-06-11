@@ -62,7 +62,7 @@ export function MessageRow({ msg, onCopy, onFeedback, onFollowup, onAcknowledge,
           )}
           {typeof msg.confidence_score === "number" && (
             <Badge data-testid="confidence-badge" className="rounded-sm bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-50 font-mono text-[10px] uppercase tracking-wider px-1.5 py-0">
-              {(msg.confidence_score * 100).toFixed(0)}% match
+              {Math.min(100, Math.max(0, Math.round(msg.confidence_score * 100)))}% match
             </Badge>
           )}
         </div>

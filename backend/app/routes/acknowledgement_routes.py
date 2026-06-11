@@ -163,7 +163,7 @@ async def export_csv(
         ])
 
     csv_bytes = buf.getvalue().encode("utf-8")
-    filename = f"ehs-acknowledgements-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.csv"
+    filename = f"cidsa-acknowledgements-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.csv"
     return StreamingResponse(
         iter([csv_bytes]),
         media_type="text/csv",

@@ -35,7 +35,7 @@ export default function AcknowledgementsPage() {
       const blob = await resp.blob();
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = `ehs-acknowledgements-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.download = `cidsa-acknowledgements-${new Date().toISOString().slice(0, 10)}.csv`;
       a.click();
       toast.success("CSV downloaded");
     } catch (e) {
@@ -49,7 +49,7 @@ export default function AcknowledgementsPage() {
         <div>
           <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-slate-500 mb-2">Compliance audit trail</div>
           <h1 className="text-3xl sm:text-4xl font-black tracking-tighter text-slate-900 mb-1">Acknowledgements</h1>
-          <p className="text-slate-600 text-sm sm:text-base">Immutable evidence that workers read and accepted EHS guidance. Exportable for regulatory audit.</p>
+          <p className="text-slate-600 text-sm sm:text-base">Immutable evidence that users read and accepted the assistant's guidance. Exportable for audit.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <div className="flex gap-px bg-slate-300 border border-slate-300">
