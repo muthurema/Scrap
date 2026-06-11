@@ -31,9 +31,9 @@ export function ChatSidebar({
           <div className="min-w-0">
             <div className="flex items-center gap-2 mb-1">
               <Logo size={32} />
-              <div className="font-bold tracking-tight text-slate-900 truncate">EHS Intelligence</div>
+              <div className="font-bold tracking-tight text-slate-900 truncate">CIDSA RAG</div>
             </div>
-            <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-slate-500">Turnstile360 RAG</div>
+            <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-slate-500">GIS knowledge assistant</div>
           </div>
           <button
             onClick={onClose}

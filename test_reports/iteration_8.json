@@ -1,0 +1,59 @@
+{
+  "summary": "Iteration 8 — full GIS-rebrand verification (backend + frontend). Created new pytest suite /app/backend/tests/test_gis_rebrand_iteration8.py (5/5 PASS): superadmin login returns needs_onboarding=False, doc upload accepts author + persists it, doc processes to READY with chunk_count>0, /api/chat/stream emits {sources, external_count:0} envelope with title+author, RAG answer cites the book by title+author ('According to *TEST_GIS_UTM_Primer_…* (TEST_Ada_Cartography) [1]'), acknowledgement create + list works. UI end-to-end was driven through Playwright: login → /admin/stats redirect ✅, CIDSA/GIS branding ✅, upload dialog has Title+Author+Document Type and NO Jurisdiction / NO Priority / NO Source pill ✅, document upload via UI surfaces title+author in list and reaches READY ✅, chat answer cites uploaded book by title+author, sources panel header is 'SOURCES' (not COMPANY SOURCES) ✅, confidence badge ✅, Copy / Thumbs Up / Thumbs Down / Acknowledge buttons all present and Acknowledge → 'Acknowledged' badge + 'Acknowledgement recorded — entered in compliance audit trail' toast ✅, sessions persist in left sidebar history ✅, /onboarding route correctly removed (catch-all redirect). All 5 backend tests + the full UI flow pass.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/documents/upload",
+        "issue": "doc_type enum in app/config.py:DocumentType still contains ONLY EHS values (sop, incident_report, risk_assessment, regulatory, training, permit, policy, msds, general). The GIS spec asked for doc_type 'book' but 'book' is NOT in the enum. RESULT: if any client sends doc_type='book' (or any non-enum value), the document IS still inserted into Mongo with raw 'book' string (validation happens AFTER insert), then DocumentOut response-model validation fails with 500. The frontend upload form currently sends 'general' for its 'Book / Reference' option so the UI is safe, BUT (a) any external API caller passing 'book' (as the user-facing PRD literally calls out) will poison the DB with an undeserialisable doc, and (b) once 1 poisoned doc exists, GET /api/documents returns 500 forever (Pydantic enum validation in _doc_to_out) which I reproduced — the Documents admin page was broken until I manually deleted the row from Mongo. Fix: add BOOK='book' to DocumentType enum (and/or REJECT invalid doc_type with 400 BEFORE inserting the Mongo row; never insert without validating the enum first).",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": [
+      {"endpoint": "GET /api/acknowledgements/export/csv", "issue": "CSV download filename is hardcoded 'ehs-acknowledgements-YYYYMMDD-HHMMSS.csv' in acknowledgement_routes.py:166 — should be 'cidsa-' or 'acknowledgements-' to match the rebrand."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "ForgotPasswordPage / ResetPasswordPage", "issue": "Header still reads 'EHS RAG' and copy says 'Enter the email tied to your EHS account…' — rebrand miss.", "selector": "/forgot-password , /reset-password", "priority": "MEDIUM"},
+      {"component": "AcknowledgementsPage header copy", "issue": "Page subtitle still reads 'Immutable evidence that workers read and accepted EHS guidance.' and CSV download filename is 'ehs-acknowledgements-YYYY-MM-DD.csv' (line 38, 52).", "selector": "/admin/acknowledgements", "priority": "MEDIUM"},
+      {"component": "CompaniesPage", "issue": "Superadmin-only Companies page still has a 'Turnstile instance URL' field + placeholder 'https://acme.turnstile360.com' + table column 'Turnstile URL'. Either remove the legacy multi-tenant Turnstile coupling or rename the field.", "selector": "/admin/companies", "priority": "MEDIUM"},
+      {"component": "WebSourcesPage suggestions", "issue": "Default web-source suggestion still hardcodes 'https://www.osha.gov/laws-regs/regulations/standardnumber/1910/1910.146' / label 'OSHA 1910.146 Confined Spaces' — EHS leak in the Add-source picker.", "selector": "/admin/web-sources", "priority": "LOW"},
+      {"component": "OnboardingPage.jsx (dead file)", "issue": "App.js correctly omits the /onboarding route, but the file /app/frontend/src/pages/OnboardingPage.jsx still exists with EHS+OSHA+jurisdiction copy. Delete the dead file to prevent future regressions.", "selector": "n/a (file removal)", "priority": "LOW"},
+      {"component": "ChatPage confidence badge formatting", "issue": "confidence-badge renders values like '832% MATCH' / '1187% MATCH' — confidence_score is returned as a float ~7-12 (likely raw cosine-sum) and the UI multiplies by 100 instead of normalising to [0,1]. The badge appears as required, but the numeric value is meaningless to users.", "selector": "[data-testid='confidence-badge']", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_gis_rebrand_iteration8.py",
+    "/app/test_reports/pytest/pytest_iteration8.xml"
+  ],
+  "action_items": [
+    "Add BOOK='book' to DocumentType enum in /app/backend/app/config.py AND validate doc_type before inserting into Mongo (POST /api/documents/upload) so an unknown doc_type returns 400 without poisoning the collection. Currently a single 'book' upload bricks the entire Documents admin page with a 500 loop.",
+    "Rebrand /forgot-password and /reset-password pages: replace 'EHS RAG' header and 'EHS account' copy with CIDSA RAG / GIS knowledge base.",
+    "Rebrand AcknowledgementsPage subtitle ('EHS guidance' → 'GIS guidance' or generic 'the assistant'), and rename the CSV download filename from 'ehs-acknowledgements-*' to 'cidsa-acknowledgements-*' both client-side (AcknowledgementsPage.jsx:38) and server-side (acknowledgement_routes.py:166).",
+    "Remove or rename Turnstile-instance-URL field from /admin/companies (CompaniesPage.jsx) — single global KB means Turnstile per-tenant URL no longer makes sense.",
+    "Replace OSHA-1910.146 default in WebSourcesPage.jsx initial suggestion list with a GIS-relevant default.",
+    "Delete the dead /app/frontend/src/pages/OnboardingPage.jsx file (route is gone but the file still contains OSHA / jurisdiction copy).",
+    "Fix confidence-badge percentage normalisation (currently shows >100% values like 832%/1187% — multiply-by-100 happening on an unnormalised score)."
+  ],
+  "critical_code_review_comments": [
+    "doc_type ingestion path inserts FIRST, validates SECOND — a write-before-validate anti-pattern. The DocumentType enum should be enforced at the FastAPI Form() boundary (use the enum class directly as the type hint, not a `str`) so FastAPI rejects unknown values with 422 before any DB write.",
+    "/app/backend/app/routes/document_routes.py line 66 (_doc_to_out) re-validates the stored doc against DocumentOut on every list call — a single poisoned row 500s the entire list endpoint indefinitely. Defensive fix: try/except around DocumentOut(**doc) and skip+log invalid rows so the list endpoint stays functional even with legacy data.",
+    "rag_engine.py + chat citation rendering work correctly: book title + author appear in BOTH the LLM-generated answer text AND in the right-rail source cards (data-testid source-card-N / source-author-N). The chunks_to_sources author propagation from chunk metadata is solid.",
+    "Sources SSE wire payload is correctly the single-global-KB envelope {sources:[...], external_count:0}. The ChatPage.jsx handler supports both array shape and envelope shape — backward-compatible.",
+    "Onboarding fully removed at the routing + auth layer (App.js no /onboarding route, /api/auth/login + register both return needs_onboarding:false). LoginPage.jsx no longer routes through onboarding. The dead OnboardingPage.jsx file should be deleted to prevent rot.",
+    "Acknowledgement workflow is intact: /api/acknowledgements/ (note trailing slash) accepts {message_id}, idempotent on re-post, message gets acknowledged_at stamped on chat_messages, /admin/acknowledgements list shows the entry."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_gis_rebrand_iteration8.py (new — 5 tests, all passing)",
+    "/app/frontend/src/pages/admin/StatsPage.jsx (fixed user-visible 'Re-seed the base EHS corpus?' → 'Re-seed the base GIS corpus?')"
+  ],
+  "success_rate": {"backend": "100% (5/5)", "frontend": "core flows 100% (login, upload, citation with book+author, sources panel, acknowledge, copy, thumbs); minor rebrand leaks on forgot/reset/acknowledgements pages"},
+  "test_credentials": "Used superadmin admin@ehsrag.com / Admin@12345 from /app/memory/test_credentials.md",
+  "seed_data_creation": "Backend pytest creates one TEST_GIS_UTM_Primer_<uuid> doc with TEST_Ada_Cartography as author per test module — auto-deleted in teardown. UI test created one UI_TEST_UTM_GIS doc by UI_TEST_Mercator — left in DB (visible in Documents admin). Manually deleted one orphaned doc_type='book' poisoned row from Mongo to unblock the documents list endpoint after the first test run hit the doc_type=book 500 bug.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "After main agent fixes the DocumentType enum to include 'book' (and adds the validate-before-insert guard), re-run /app/backend/tests/test_gis_rebrand_iteration8.py and additionally try POST /api/documents/upload with doc_type='book' explicitly — it should now return 201, not 500. Also re-grep frontend for 'EHS'/'Turnstile'/'OSHA' string literals — ForgotPasswordPage, ResetPasswordPage, AcknowledgementsPage, CompaniesPage, WebSourcesPage are confirmed leak sites. Confidence-badge percentage scaling (>100%) is a separate display bug unrelated to the rebrand but worth fixing in the same pass.",
+  "rca of the issue": "The DocumentType enum was never updated when the EHS→GIS rebrand happened. The upload route accepts doc_type as a plain `str` Form field (document_routes.py:141 — `doc_type: str = Form(DocumentType.GENERAL.value)`), passes the raw string straight into Mongo at line 235, and only later constructs DocumentOut(**doc) where Pydantic enforces the enum and 500s. Because the Mongo insert succeeded, the row persists with the invalid 'book' value, and EVERY subsequent GET /api/documents call calls _doc_to_out on that row → 500 forever (full Documents admin page broken). Reproduction: curl POST /api/documents/upload with multipart doc_type=book → response 500, doc visible in MongoDB ehs_rag.documents, then GET /api/documents returns 500. Mitigation already applied manually for now: db.documents.delete_many({doc_type:'book'}). Permanent fix: change Form signature to `doc_type: DocumentType = Form(DocumentType.GENERAL)` AND add BOOK='book' to the enum, OR add an explicit `if doc_type not in {t.value for t in DocumentType}: raise HTTPException(400, ...)` before the insert. Plus, add try/except around DocumentOut(**doc) in _doc_to_out so legacy/poisoned rows can't take down the whole list endpoint."
+}

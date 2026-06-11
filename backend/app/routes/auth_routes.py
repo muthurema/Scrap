@@ -83,7 +83,7 @@ async def register(payload: UserCreate):
         "role": role,
         "company_id": company_id,
         "is_active": True,
-        "needs_onboarding": True,
+        "needs_onboarding": False,
         "created_at": _now(),
     }
     await users_col().insert_one(doc)
@@ -106,7 +106,7 @@ async def register(payload: UserCreate):
     return TokenResponse(
         access_token=token, user_id=user_id, role=role,
         email=payload.email, full_name=payload.full_name, company_id=company_id,
-        needs_onboarding=True,
+        needs_onboarding=False,
     )
 
 

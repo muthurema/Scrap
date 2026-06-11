@@ -1,0 +1,11 @@
+UI_TEST_GIS_BOOK
+
+A UTM zone is 6 degrees wide. The scale factor at the central meridian of a UTM zone is 0.9996. UTM uses the Transverse Mercator projection with a false easting of 500,000 m.UI_TEST_GIS_BOOK
+
+A UTM zone is 6 degrees wide. The scale factor at the central meridian of a UTM zone is 0.9996. UTM uses the Transverse Mercator projection with a false easting of 500,000 m.UI_TEST_GIS_BOOK
+
+A UTM zone is 6 degrees wide. The scale factor at the central meridian of a UTM zone is 0.9996. UTM uses the Transverse Mercator projection with a false easting of 500,000 m.UI_TEST_GIS_BOOK
+
+A UTM zone is 6 degrees wide. The scale factor at the central meridian of a UTM zone is 0.9996. UTM uses the Transverse Mercator projection with a false easting of 500,000 m.UI_TEST_GIS_BOOK
+
+A UTM zone is 6 degrees wide. The scale factor at the central meridian of a UTM zone is 0.9996. UTM uses the Transverse Mercator projection with a false easting of 500,000 m.

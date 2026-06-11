@@ -1,15 +1,17 @@
 /**
- * Turnstile360 brand mark. Square inline logo. Pass `size` (px) and optional `className`.
+ * CIDSA brand mark — a GIS globe glyph in a square tile.
+ * Pass `size` (px) for the tile dimensions and optional `className`.
  */
+import { GlobeHemisphereWest } from "@phosphor-icons/react";
+
 export function Logo({ size = 28, className = "" }) {
   return (
-    <img
-      src="/turnstile360-logo.png"
-      alt="Turnstile360"
-      width={size}
-      height={size}
-      className={`object-contain shrink-0 ${className}`}
-      draggable="false"
-    />
+    <span
+      className={`inline-flex items-center justify-center shrink-0 bg-emerald-600 text-white rounded-sm ${className}`}
+      style={{ width: size, height: size }}
+      aria-label="CIDSA"
+    >
+      <GlobeHemisphereWest size={Math.round(size * 0.62)} weight="bold" />
+    </span>
   );
 }

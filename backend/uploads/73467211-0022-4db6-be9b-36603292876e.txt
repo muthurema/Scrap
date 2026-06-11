@@ -1,0 +1,13 @@
+TEST_GIS_BOOK
+
+A UTM zone is defined as a 6-degree-wide longitudinal strip of the Earth, with 60 zones covering the globe between 80 deg S and 84 deg N. Each zone uses a Transverse Mercator projection centered on its central meridian, with a scale factor of 0.9996 at the central meridian. Coordinates are in meters, with a false easting of 500,000 m and (in the southern hemisphere) a false northing of 10,000,000 m. UTM provides high accuracy for mapping within a single zone but distorts at zone boundaries.
+
+Spatial reference systems are commonly identified by EPSG codes; for example WGS 84 / UTM zone 33N is EPSG:32633.TEST_GIS_BOOK
+
+A UTM zone is defined as a 6-degree-wide longitudinal strip of the Earth, with 60 zones covering the globe between 80 deg S and 84 deg N. Each zone uses a Transverse Mercator projection centered on its central meridian, with a scale factor of 0.9996 at the central meridian. Coordinates are in meters, with a false easting of 500,000 m and (in the southern hemisphere) a false northing of 10,000,000 m. UTM provides high accuracy for mapping within a single zone but distorts at zone boundaries.
+
+Spatial reference systems are commonly identified by EPSG codes; for example WGS 84 / UTM zone 33N is EPSG:32633.TEST_GIS_BOOK
+
+A UTM zone is defined as a 6-degree-wide longitudinal strip of the Earth, with 60 zones covering the globe between 80 deg S and 84 deg N. Each zone uses a Transverse Mercator projection centered on its central meridian, with a scale factor of 0.9996 at the central meridian. Coordinates are in meters, with a false easting of 500,000 m and (in the southern hemisphere) a false northing of 10,000,000 m. UTM provides high accuracy for mapping within a single zone but distorts at zone boundaries.
+
+Spatial reference systems are commonly identified by EPSG codes; for example WGS 84 / UTM zone 33N is EPSG:32633.

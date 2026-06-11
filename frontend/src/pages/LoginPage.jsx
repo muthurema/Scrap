@@ -48,11 +48,7 @@ export default function LoginPage() {
             invite_code: inviteCode ? inviteCode.trim().toUpperCase() : undefined,
           });
       toast.success(`Welcome, ${user.full_name || user.email}`);
-      if (user.needs_onboarding && user.role === "user") {
-        navigate("/onboarding");
-      } else {
-        navigate(["superadmin", "admin"].includes(user.role) ? "/admin/stats" : "/chat");
-      }
+      navigate(["superadmin", "admin"].includes(user.role) ? "/admin/stats" : "/chat");
     } catch (err) {
       const detail = err?.response?.data?.detail;
       const msg = typeof detail === "string" ? detail : (Array.isArray(detail) ? detail[0]?.msg : "Authentication failed");
@@ -69,44 +65,33 @@ export default function LoginPage() {
         className="hidden lg:flex flex-col w-[44%] bg-slate-900 text-white p-12 relative overflow-hidden"
         data-testid="login-brand-panel"
       >
-        {/* Doodle wallpaper layer */}
-        <div
-          aria-hidden="true"
-          className="absolute inset-0 bg-repeat opacity-[0.18]"
-          style={{
-            backgroundImage: "url('/ehs-doodle.jpg')",
-            backgroundSize: "560px auto",
-            filter: "invert(1) hue-rotate(180deg) saturate(0.6)",
-          }}
-        />
-        <div className="absolute inset-0 bg-gradient-to-br from-slate-900/65 via-slate-900/55 to-slate-900/85"></div>
+        <div className="absolute inset-0 bg-gradient-to-br from-emerald-950/40 via-slate-900/60 to-slate-900/90"></div>
         <div className="relative z-10 flex items-center gap-3">
           <Logo size={40} />
           <div>
-            <div className="font-mono text-xs uppercase tracking-[0.25em] text-white/60">Turnstile360</div>
-            <div className="font-bold text-lg tracking-tight">EHS INTELLIGENCE</div>
+            <div className="font-mono text-xs uppercase tracking-[0.25em] text-white/60">CIDSA</div>
+            <div className="font-bold text-lg tracking-tight">GIS KNOWLEDGE ASSISTANT</div>
           </div>
         </div>
 
         <div className="relative z-10 mt-auto">
-          <div className="font-mono text-xs uppercase tracking-[0.2em] text-white/60 mb-3">AI co-pilot for safety teams</div>
+          <div className="font-mono text-xs uppercase tracking-[0.2em] text-white/60 mb-3">AI co-pilot for geospatial teams</div>
           <h1 className="text-5xl font-black tracking-tighter leading-[0.95] mb-6">
-            Answers grounded in <span className="text-blue-400">your</span> EHS documents.
+            Answers grounded in <span className="text-emerald-400">your</span> GIS books.
           </h1>
           <p className="text-white/70 text-base max-w-md leading-relaxed">
-            Permits, HAZOPs, SOPs, incident reports, ISO 45001 and OSHA — retrieve, cite and reason across your entire safety knowledge base.
+            Coordinate systems, projections, spatial analysis, remote sensing, cartography and PostGIS — retrieve, cite and reason across your geospatial reference library, with every answer attributed to its book and author.
           </p>
 
           <div className="mt-10 grid grid-cols-3 gap-px bg-white/10 border border-white/10 max-w-md">
             {[
-              { label: "Company Docs", boost: "1.5×" },
-              { label: "Turnstile DMS", boost: "1.3×" },
-              { label: "Base Corpus", boost: "1.0×" },
+              { label: "Cited", value: "Book + Author" },
+              { label: "Search", value: "Hybrid RAG" },
+              { label: "Vision", value: "Map Analysis" },
             ].map((x) => (
               <div key={x.label} className="bg-slate-900/80 p-4">
-                <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-white/50">Priority</div>
-                <div className="font-black text-2xl mt-1">{x.boost}</div>
-                <div className="text-xs text-white/70 mt-1">{x.label}</div>
+                <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-white/50">{x.label}</div>
+                <div className="font-bold text-base mt-1">{x.value}</div>
               </div>
             ))}
           </div>
@@ -118,7 +103,7 @@ export default function LoginPage() {
         <div className="w-full max-w-md">
           <div className="lg:hidden mb-8 flex items-center gap-3">
             <Logo size={36} />
-            <div className="font-bold text-lg tracking-tight">EHS INTELLIGENCE</div>
+            <div className="font-bold text-lg tracking-tight">CIDSA RAG</div>
           </div>
 
           <div className="font-mono text-xs uppercase tracking-[0.25em] text-slate-500 mb-2">
@@ -129,8 +114,8 @@ export default function LoginPage() {
           </h2>
           <p className="text-slate-600 text-sm mb-8">
             {mode === "login"
-              ? "Enter your credentials to access the EHS knowledge base."
-              : "Have an invite code from your org admin? Drop it in below — otherwise your email must be allow-listed."}
+              ? "Enter your credentials to access the GIS knowledge base."
+              : "Have an invite code from your admin? Drop it in below — otherwise your email must be allow-listed."}
           </p>
 
           <form onSubmit={submit} className="space-y-5">
@@ -145,7 +130,7 @@ export default function LoginPage() {
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
                     required
-                    className="rounded-sm border-slate-300 focus-visible:ring-blue-600"
+                    className="rounded-sm border-slate-300 focus-visible:ring-emerald-600"
                   />
                 </div>
                 <div className="space-y-2">
@@ -161,7 +146,7 @@ export default function LoginPage() {
                       placeholder="ABCD1234"
                       maxLength={16}
                       autoComplete="off"
-                      className="rounded-sm border-slate-300 focus-visible:ring-blue-600 pl-9 font-mono tracking-widest"
+                      className="rounded-sm border-slate-300 focus-visible:ring-emerald-600 pl-9 font-mono tracking-widest"
                     />
                   </div>
                   {inviteInfo && inviteInfo.valid && (
@@ -188,7 +173,7 @@ export default function LoginPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 required
                 autoComplete="email"
-                className="rounded-sm border-slate-300 focus-visible:ring-blue-600"
+                className="rounded-sm border-slate-300 focus-visible:ring-emerald-600"
               />
             </div>
             <div className="space-y-2">
@@ -198,7 +183,7 @@ export default function LoginPage() {
                   <Link
                     to="/forgot-password"
                     data-testid="login-forgot-link"
-                    className="font-mono text-[10px] uppercase tracking-wider text-slate-500 hover:text-blue-700"
+                    className="font-mono text-[10px] uppercase tracking-wider text-slate-500 hover:text-emerald-700"
                   >
                     Forgot?
                   </Link>
@@ -213,14 +198,14 @@ export default function LoginPage() {
                 required
                 minLength={6}
                 autoComplete={mode === "login" ? "current-password" : "new-password"}
-                className="rounded-sm border-slate-300 focus-visible:ring-blue-600"
+                className="rounded-sm border-slate-300 focus-visible:ring-emerald-600"
               />
             </div>
             <Button
               type="submit"
               data-testid="login-submit-button"
               disabled={busy}
-              className="w-full rounded-sm bg-blue-600 hover:bg-blue-700 text-white font-semibold tracking-tight h-11 group"
+              className="w-full rounded-sm bg-emerald-600 hover:bg-emerald-700 text-white font-semibold tracking-tight h-11 group"
             >
               {busy
                 ? (mode === "login" ? "SIGNING IN..." : "CREATING...")
@@ -239,7 +224,7 @@ export default function LoginPage() {
                 No account?{" "}
                 <button
                   data-testid="switch-to-register-btn"
-                  className="text-blue-600 hover:text-blue-800 font-medium underline-offset-2 hover:underline"
+                  className="text-emerald-600 hover:text-emerald-800 font-medium underline-offset-2 hover:underline"
                   onClick={() => setMode("register")}
                 >
                   Register
@@ -250,7 +235,7 @@ export default function LoginPage() {
                 Already have an account?{" "}
                 <button
                   data-testid="switch-to-login-btn"
-                  className="text-blue-600 hover:text-blue-800 font-medium underline-offset-2 hover:underline"
+                  className="text-emerald-600 hover:text-emerald-800 font-medium underline-offset-2 hover:underline"
                   onClick={() => setMode("login")}
                 >
                   Sign in

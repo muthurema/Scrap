@@ -4,7 +4,6 @@ import { Toaster } from "@/components/ui/sonner";
 import LoginPage from "@/pages/LoginPage";
 import ForgotPasswordPage from "@/pages/ForgotPasswordPage";
 import ResetPasswordPage from "@/pages/ResetPasswordPage";
-import OnboardingPage from "@/pages/OnboardingPage";
 import ChatPage from "@/pages/ChatPage";
 import AdminLayout from "@/pages/admin/AdminLayout";
 import DocumentsPage from "@/pages/admin/DocumentsPage";
@@ -22,30 +21,17 @@ function RequireAuth({ children, roles }) {
   const { user } = useAuth();
   if (!user) return <Navigate to="/login" replace />;
   if (roles && !roles.includes(user.role)) return <Navigate to="/chat" replace />;
-  // Onboarding is for field users only — admins/superadmin go straight in
-  if (user.needs_onboarding && user.role === "user") return <Navigate to="/onboarding" replace />;
   return children;
 }
 
 function App() {
   return (
     <AuthProvider>
-      {/* Global doodle wallpaper — fixed, low-opacity tiled background
-          that sits BEHIND every page. Inline style because the asset
-          lives in /public and CSS-loader can't resolve it from src/.
-          Pages with their own solid panels (LoginPage left side,
-          dark chat sidebars) cover this naturally. */}
-      <div
-        aria-hidden="true"
-        className="app-doodle-bg"
-        style={{ backgroundImage: "url('/ehs-doodle.jpg')" }}
-      />
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
-          <Route path="/onboarding" element={<OnboardingPage />} />
           <Route path="/" element={<Navigate to="/chat" replace />} />
           <Route
             path="/chat"

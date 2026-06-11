@@ -54,7 +54,7 @@ export function MessageRow({ msg, onCopy, onFeedback, onFollowup, onAcknowledge,
       </div>
       <div className="flex-1 pt-1 min-w-0">
         <div className="flex items-center gap-2 mb-1">
-          <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-slate-500">EHS AI</div>
+          <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-slate-500">CIDSA AI</div>
           {msg.is_high_risk && (
             <Badge data-testid="high-risk-badge" className="rounded-sm bg-rose-50 text-rose-800 border border-rose-300 hover:bg-rose-50 font-mono text-[10px] uppercase tracking-wider px-1.5 py-0">
               <Warning size={10} weight="bold" className="mr-0.5" />High Risk

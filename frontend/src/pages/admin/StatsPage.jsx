@@ -41,7 +41,7 @@ export default function StatsPage() {
     const label = force ? "FORCE re-seed" : "re-seed";
     const msg = force
       ? "FORCE re-seed will DELETE all existing base-corpus documents and re-ingest from scratch. Continue?"
-      : "Re-seed the base EHS corpus? Existing titles will be skipped (safe to run anytime).";
+      : "Re-seed the base GIS corpus? Existing titles will be skipped (safe to run anytime).";
     if (!confirm(msg)) return;
     setReseedBusy(true);
     const t = toast.loading(`${label} in progress — embedding chunks…`);
@@ -96,7 +96,7 @@ export default function StatsPage() {
       ) : (
         <>
           <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-px bg-slate-200 border border-slate-300 mt-6" data-testid="stats-grid">
-            <Stat icon={FileText} label="Documents" value={stats?.total_documents} sublabel={`${stats?.company_doc_count ?? 0} company · ${stats?.base_corpus_count ?? 0} base`} />
+            <Stat icon={FileText} label="Documents" value={stats?.total_documents} sublabel="GIS books in library" />
             <Stat icon={Database} label="Chunks Embedded" value={stats?.total_chunks_embedded} sublabel="In vector store" />
             <Stat icon={ChatCircle} label="Chat Sessions" value={stats?.total_chat_sessions} sublabel={`${stats?.total_messages ?? 0} messages`} />
             <Stat icon={Users} label="Users" value={stats?.total_users} sublabel="Total registered" />
@@ -118,25 +118,8 @@ export default function StatsPage() {
             <Stat icon={ChartBar} label="System" value="LIVE" sublabel="Auto-refresh 10s" accent="emerald" />
           </div>
 
-          <Section title="Knowledge Source Priority">
+          <Section title="Knowledge Base">
             <CorpusHealth stats={stats} onReseed={reseed} onResetQdrant={resetQdrant} busy={reseedBusy} />
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-px bg-slate-200 border border-slate-300 mt-4">
-              {[
-                { label: "Company Uploads", boost: "1.5×", color: "bg-blue-600", desc: "Documents uploaded by superadmins" },
-                { label: "Turnstile DMS Sync", boost: "1.3×", color: "bg-indigo-600", desc: "Synced from Turnstile360 (stub)" },
-                { label: "Base EHS Corpus", boost: "1.0×", color: "bg-slate-700", desc: "Platform-wide standards (OSHA, ISO)" },
-              ].map((s) => (
-                <div key={s.label} className="bg-white p-5">
-                  <div className="flex items-center gap-2 mb-3">
-                    <span className={`w-2 h-2 ${s.color} inline-block`}></span>
-                    <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-slate-500">Priority Boost</div>
-                  </div>
-                  <div className="font-black text-3xl tracking-tight text-slate-900 mb-1">{s.boost}</div>
-                  <div className="font-semibold text-sm text-slate-800 mb-1">{s.label}</div>
-                  <div className="text-xs text-slate-600">{s.desc}</div>
-                </div>
-              ))}
-            </div>
           </Section>
 
           <Section title="Document-Type Chunking Strategy">
@@ -154,14 +137,11 @@ export default function StatsPage() {
                   </thead>
                   <tbody>
                     {[
-                      ["SOPs / Procedures", "512", "100", "1.2×"],
-                      ["Regulatory (ISO/OSHA)", "768", "150", "1.0×"],
-                      ["Incident Reports", "256", "50", "1.1×"],
-                      ["HAZOP / Risk", "512", "128", "1.3×"],
-                      ["Training Materials", "384", "75", "1.0×"],
-                      ["Permits / Compliance", "512", "100", "1.1×"],
-                      ["Policies", "512", "100", "1.4×"],
-                      ["MSDS / SDS", "384", "64", "1.2×"],
+                      ["Books / Guides / Manuals", "512", "100", "1.2×"],
+                      ["Standards / Specs", "768", "150", "1.0×"],
+                      ["Technical Analysis", "512", "128", "1.3×"],
+                      ["Tutorials", "384", "75", "1.0×"],
+                      ["General Reference", "512", "100", "1.0×"],
                     ].map(([t, cs, co, b]) => (
                       <tr key={t} className="border-b border-slate-200 last:border-b-0 hover:bg-slate-50">
                         <td className="px-3 py-2 font-medium">{t}</td>
@@ -188,7 +168,7 @@ function Header() {
     <div>
       <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-slate-500 mb-2">System overview</div>
       <h1 className="text-3xl sm:text-4xl font-black tracking-tighter text-slate-900 mb-1">Control Room</h1>
-      <p className="text-slate-600 text-sm sm:text-base">Real-time stats across the EHS knowledge graph.</p>
+      <p className="text-slate-600 text-sm sm:text-base">Real-time stats across the GIS knowledge base.</p>
     </div>
   );
 }
@@ -259,39 +239,18 @@ function CorpusHealth({ stats, onReseed, onResetQdrant, busy }) {
             <CheckCircle size={16} weight="bold" className="text-emerald-700" />
           )}
           <div className="font-bold tracking-tight text-slate-900">
-            {empty ? "Corpus is empty — chat will not return any sources" : "Knowledge base healthy"}
+            {empty ? "Knowledge base is empty — chat won't return sources yet" : "Knowledge base healthy"}
           </div>
         </div>
         <div className="text-xs text-slate-600 leading-relaxed">
           {empty
-            ? "Run \"Re-seed base corpus\" to populate the OSHA, ISO 45001, LOTO, JSA, GHS, hot work and RCA reference documents. Required on first install or after a fresh deployment."
+            ? "Go to Documents and upload your GIS reference books (PDF / DOCX / TXT). Once they finish processing, the assistant will cite them by book and author."
             : <>
-                <span className="font-mono">{chunks}</span> embedded chunks across <span className="font-mono">{baseDocs}</span> base-corpus documents. Re-seed only if you've deleted reference docs and want them restored.
+                <span className="font-mono">{chunks}</span> embedded chunks across <span className="font-mono">{baseDocs}</span> books. Use the index-reset tools only if you see vector-store errors in the logs.
               </>}
         </div>
       </div>
       <div className="flex flex-wrap gap-2 shrink-0">
-        <Button
-          onClick={() => onReseed(false)}
-          disabled={busy}
-          data-testid="reseed-corpus-btn"
-          className="rounded-sm bg-slate-900 hover:bg-slate-800 text-white h-9 font-semibold tracking-tight"
-        >
-          <ArrowsClockwise size={14} weight="bold" className={busy ? "animate-spin" : ""} />
-          <span className="ml-2">{busy ? "RE-SEEDING…" : "RE-SEED CORPUS"}</span>
-        </Button>
-        {!empty && (
-          <Button
-            onClick={() => onReseed(true)}
-            disabled={busy}
-            data-testid="reseed-force-btn"
-            variant="outline"
-            className="rounded-sm border-rose-300 text-rose-700 hover:bg-rose-50 hover:text-rose-800 h-9 font-mono uppercase text-[11px] tracking-wider"
-            title="Delete all existing base-corpus docs and re-ingest from scratch"
-          >
-            Force
-          </Button>
-        )}
         {onResetQdrant && (
           <>
             <Button
@@ -300,9 +259,9 @@ function CorpusHealth({ stats, onReseed, onResetQdrant, busy }) {
               data-testid="qdrant-reset-base-btn"
               variant="outline"
               className="rounded-sm border-rose-400 text-rose-700 hover:bg-rose-50 h-9 font-mono uppercase text-[11px] tracking-wider"
-              title="Wipe & recreate the base-knowledge Qdrant collection (use if you see 'broadcast' errors in logs)"
+              title="Wipe & recreate the knowledge-base Qdrant collection (use only if you see vector-store errors in logs)"
             >
-              Reset Base Index
+              Reset Index
             </Button>
             <Button
               onClick={() => onResetQdrant("ehs_company_docs")}
@@ -310,9 +269,9 @@ function CorpusHealth({ stats, onReseed, onResetQdrant, busy }) {
               data-testid="qdrant-reset-company-btn"
               variant="outline"
               className="rounded-sm border-rose-400 text-rose-700 hover:bg-rose-50 h-9 font-mono uppercase text-[11px] tracking-wider"
-              title="Wipe & recreate the company-docs Qdrant collection"
+              title="Wipe & recreate the secondary Qdrant collection"
             >
-              Reset Company Index
+              Reset Index (2)
             </Button>
           </>
         )}

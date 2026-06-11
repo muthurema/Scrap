@@ -92,6 +92,7 @@ async def _process_document_bg(doc_id: str, file_path: str, file_ext: str):
             extra_metadata={
                 "company_id": doc.get("company_id") or "",
                 "filename": doc["original_filename"],
+                "author": doc.get("author") or "",
                 "jurisdiction": doc.get("jurisdiction") or "",
                 "expiry_date": doc.get("expiry_date") or "",
             },
@@ -135,9 +136,10 @@ async def upload_document(
     request: Request,
     file: UploadFile = File(...),
     title: Optional[str] = Form(None),
+    author: Optional[str] = Form(None),
     description: Optional[str] = Form(None),
     doc_type: str = Form(DocumentType.GENERAL.value),
-    source: str = Form(DocumentSource.SUPERADMIN.value),
+    source: str = Form(DocumentSource.BASE_CORPUS.value),
     tags: Optional[str] = Form(None),
     version: Optional[str] = Form(None),
     expiry_date: Optional[str] = Form(None),
@@ -145,29 +147,11 @@ async def upload_document(
     jurisdiction: Optional[str] = Form(None),
     current_user: dict = Depends(require_admin),
 ):
-    # RBAC: superadmin can upload to global (base_corpus) or regional tier.
-    # Admins are confined to their own company.
-    SUPERADMIN_ALLOWED_SOURCES = {
-        DocumentSource.BASE_CORPUS.value,
-        DocumentSource.REGIONAL_BASE.value,
-    }
-    if current_user.get("role") == "superadmin":
-        if source not in SUPERADMIN_ALLOWED_SOURCES:
-            source = DocumentSource.BASE_CORPUS.value
-        if source == DocumentSource.REGIONAL_BASE.value and not jurisdiction:
-            raise HTTPException(
-                400,
-                "Regional-tier uploads require a `jurisdiction` value "
-                "(e.g. 'UK', 'AU', 'SG'). Omit jurisdiction for true global "
-                "(base_corpus) sources.",
-            )
-        company_id_for_doc = None
-    else:
-        if not current_user.get("company_id"):
-            raise HTTPException(400, "Admin must belong to a company before uploading")
-        # Admins always upload to their own company; force the source.
-        source = DocumentSource.SUPERADMIN.value
-        company_id_for_doc = current_user["company_id"]
+    # Single global GIS knowledge base: every book is shared globally.
+    # All uploads (admin or superadmin) go to the global base corpus with
+    # no company scoping.
+    source = DocumentSource.BASE_CORPUS.value
+    company_id_for_doc = None
 
     # ── Concurrent-ingestion cap (memory safety) ──────────────────────────
     # Reject the upload if this user's scope already has MAX_INFLIGHT_PER_SCOPE
@@ -251,6 +235,7 @@ async def upload_document(
         "doc_type": doc_type,
         "source": source,
         "title": title or Path(file.filename).stem,
+        "author": author,
         "description": description,
         "tags": tag_list,
         "version": version,
@@ -376,10 +361,6 @@ async def delete_document(doc_id: str, request: Request, current_user: dict = De
     doc = await documents_col().find_one({"id": doc_id})
     if not doc:
         raise HTTPException(404, "Document not found")
-    # Admins can only delete their own company's docs; base-corpus is superadmin-only
-    if current_user.get("role") != "superadmin":
-        if doc.get("source") == DocumentSource.BASE_CORPUS.value or doc.get("company_id") != current_user.get("company_id"):
-            raise HTTPException(403, "You can only delete documents for your own company")
 
     ingestion = IngestionService(get_vector_store())
     await ingestion.delete_document(doc_id)
@@ -404,9 +385,6 @@ async def reprocess_document(
     doc = await documents_col().find_one({"id": doc_id})
     if not doc:
         raise HTTPException(404, "Document not found")
-    if current_user.get("role") != "superadmin":
-        if doc.get("source") == DocumentSource.BASE_CORPUS.value or doc.get("company_id") != current_user.get("company_id"):
-            raise HTTPException(403, "You can only re-process documents for your own company")
     if not doc.get("file_path") or not Path(doc["file_path"]).exists():
         raise HTTPException(
             400,
@@ -439,9 +417,6 @@ async def cancel_document(doc_id: str, request: Request, current_user: dict = De
     doc = await documents_col().find_one({"id": doc_id})
     if not doc:
         raise HTTPException(404, "Document not found")
-    if current_user.get("role") != "superadmin":
-        if doc.get("source") == DocumentSource.BASE_CORPUS.value or doc.get("company_id") != current_user.get("company_id"):
-            raise HTTPException(403, "You can only cancel documents for your own company")
     if doc.get("is_processed"):
         raise HTTPException(400, "Document is already fully processed — delete it instead")
 

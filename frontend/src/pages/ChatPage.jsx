@@ -544,7 +544,7 @@ export default function ChatPage() {
                     }}
                     placeholder={attachments.length > 0
                       ? "Add a question about the image(s) — or send as-is"
-                      : "Ask about confined space, LOTO, ISO 45001, HAZOP, incident RCA..."}
+                      : "Ask about projections, datums, spatial analysis, remote sensing, PostGIS..."}
                     rows={2}
                     data-testid="chat-input"
                     className="resize-none border-0 focus-visible:ring-0 rounded-sm bg-transparent text-slate-900 placeholder:text-slate-400 px-3 sm:px-4 py-3 pl-12 pr-14 max-h-40 text-base"
@@ -580,7 +580,7 @@ export default function ChatPage() {
                 </form>
                 <div className="mt-2 font-mono text-[10px] uppercase tracking-[0.2em] text-slate-400 text-center leading-relaxed">
                   <span className="hidden sm:inline">Enter to send · Shift+Enter for newline · </span>
-                  <span className="hidden sm:inline">📎 Attach hazard / PPE photos · </span>
+                  <span className="hidden sm:inline">📎 Attach a map / chart / screenshot · </span>
                   <span className="text-amber-700">AI-generated — verify before acting.</span>
                 </div>
               </div>
@@ -591,7 +591,7 @@ export default function ChatPage() {
             <div className="h-14 border-b border-slate-200 bg-white px-4 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Books size={16} className="text-slate-700" weight="bold" />
-                <div className="font-bold tracking-tight text-sm">COMPANY SOURCES</div>
+                <div className="font-bold tracking-tight text-sm">SOURCES</div>
               </div>
               <div className="font-mono text-[10px] text-slate-500 uppercase tracking-wider">{activeSources.length}</div>
             </div>
@@ -599,9 +599,7 @@ export default function ChatPage() {
               <div className="p-3 space-y-2">
                 {activeSources.length === 0 ? (
                   <div className="text-xs text-slate-500 font-mono p-3 leading-relaxed">
-                    {activeExternalCount > 0
-                      ? <>This answer references external EHS guidance only — no internal company SOPs matched this query. <span className="text-slate-400">({activeExternalCount} external reference{activeExternalCount === 1 ? "" : "s"} used.)</span></>
-                      : "Sources will appear after you ask a question"}
+                    Sources will appear after you ask a question
                   </div>
                 ) : (
                   <>
@@ -613,14 +611,6 @@ export default function ChatPage() {
                         onOpen={() => openDocPreview(s)}
                       />
                     ))}
-                    {activeExternalCount > 0 && (
-                      <div
-                        className="text-[11px] text-slate-500 font-mono uppercase tracking-wider px-3 py-2 border border-dashed border-slate-300 bg-white"
-                        data-testid="external-references-note"
-                      >
-                        + {activeExternalCount} external reference{activeExternalCount === 1 ? "" : "s"} (ISO / OSHA / regulators)
-                      </div>
-                    )}
                   </>
                 )}
               </div>

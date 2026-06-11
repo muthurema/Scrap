@@ -13,7 +13,6 @@ from app.auth import get_current_user
 from app.vector_store import get_vector_store
 from app.rag_engine import RAGEngine
 from app.security import sanitize_user_query, has_injection_signal, detect_pii
-from app.escalation import is_high_risk
 from app.audit import audit
 from app.routes.feedback_routes import get_relevant_annotations
 
@@ -65,21 +64,18 @@ async def chat(payload: ChatMessageIn, request: Request, current_user: dict = De
     session_id = await _ensure_session(payload, current_user)
     history = await _load_history(session_id)
 
-    profile = await users_col().find_one({"id": current_user["sub"]}, {"_id": 0, "jurisdiction": 1})
-    user_juris = (profile or {}).get("jurisdiction")
     sme_corrections = await get_relevant_annotations(payload.content)
 
     rag = RAGEngine(get_vector_store())
     answer, chunks, retrieval_meta = await rag.answer(
         query=payload.content, session_id=session_id, history=history,
         company_id=current_user.get("company_id"),
-        user_jurisdiction=user_juris,
         sme_corrections=sme_corrections,
     )
     sources = rag.chunks_to_sources(chunks)
     avg_score = (sum(c.boosted_score for c in chunks) / len(chunks)) if chunks else None
     followups = await rag.suggest_followups(payload.content, answer)
-    high_risk = is_high_risk(payload.content)
+    high_risk = False
 
     user_msg_id = str(uuid.uuid4())
     assistant_msg_id = str(uuid.uuid4())
@@ -126,8 +122,6 @@ async def chat_stream(payload: ChatMessageIn, request: Request, current_user: di
     history = await _load_history(session_id)
     rag = RAGEngine(get_vector_store())
 
-    profile = await users_col().find_one({"id": current_user["sub"]}, {"_id": 0, "jurisdiction": 1})
-    user_juris = (profile or {}).get("jurisdiction")
     sme_corrections = await get_relevant_annotations(payload.content)
 
     user_msg_id = str(uuid.uuid4())
@@ -170,44 +164,22 @@ async def chat_stream(payload: ChatMessageIn, request: Request, current_user: di
                     session_id=session_id,
                     history=history,
                     company_id=current_user.get("company_id"),
-                    user_jurisdiction=user_juris,
                     sme_corrections=sme_corrections,
                     images_b64=images_b64 or None,
                 ):
                     etype = event["type"]
                     data = event.get("data")
                     if etype == "sources":
-                        # The LLM still gets the full retrieved context
-                        # (global + regional + company) so answer quality
-                        # stays high — but the UI only shows the user
-                        # SOURCES THEY CAN ACT ON: i.e. their OWN company's
-                        # docs. We must match BOTH tier=company AND
-                        # company_id=current_user.company_id — filtering on
-                        # tier alone would leak Acme's chunks to a Beta
-                        # admin (or to a superadmin with no company).
-                        caller_company_id = current_user.get("company_id")
+                        # Single global GIS knowledge base: show ALL retrieved
+                        # sources to the user (book title + author). No
+                        # multi-tenant filtering — every book is shared.
                         all_sources = data or []
-                        if caller_company_id:
-                            company_sources = [
-                                s for s in all_sources
-                                if s.get("tier") == "company"
-                                and s.get("company_id") == caller_company_id
-                            ]
-                        else:
-                            # Superadmin / user without a company: no
-                            # "their" company → zero company sources. The
-                            # external_count summary still shows; the LLM
-                            # still uses the full retrieved context.
-                            company_sources = []
-                        external_count = len(all_sources) - len(company_sources)
-                        # Persist the FULL list to Mongo (for audit) but
-                        # send only the filtered view down the wire.
                         final_text_holder["sources"] = data
                         final_text_holder["meta"] = event.get("retrieval_meta", {})
-                        final_text_holder["high_risk"] = event.get("retrieval_meta", {}).get("high_risk", False)
+                        final_text_holder["high_risk"] = False
                         wire_payload = {
-                            "sources": company_sources,
-                            "external_count": external_count,
+                            "sources": all_sources,
+                            "external_count": 0,
                         }
                         await queue.put(f"event: sources\ndata: {json.dumps(wire_payload)}\n\n")
                     elif etype == "token":

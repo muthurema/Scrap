@@ -76,6 +76,7 @@ class DocumentOut(BaseModel):
     doc_type: DocumentType
     source: DocumentSource
     title: Optional[str] = None
+    author: Optional[str] = None
     description: Optional[str] = None
     tags: List[str] = []
     version: Optional[str] = None
@@ -110,6 +111,7 @@ class ChatMessageIn(BaseModel):
 class SourceReference(BaseModel):
     doc_id: str
     title: str
+    author: Optional[str] = None
     filename: str
     doc_type: DocumentType
     source: DocumentSource

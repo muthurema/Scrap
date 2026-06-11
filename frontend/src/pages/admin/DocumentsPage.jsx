@@ -13,18 +13,9 @@ import { toast } from "sonner";
 import { UploadSimple, ArrowsClockwise, Trash, CheckCircle, Warning, Hourglass, ArrowsLeftRight, Clock, X as XIcon } from "@phosphor-icons/react";
 
 const DOC_TYPES = [
-  ["general", "General"], ["sop", "SOP / Procedure"], ["incident_report", "Incident Report"],
-  ["risk_assessment", "Risk / HAZOP"], ["regulatory", "Regulatory (ISO/OSHA)"],
-  ["training", "Training"], ["permit", "Permit"], ["policy", "Policy"], ["msds", "MSDS / SDS"],
+  ["general", "Book / Reference"], ["sop", "Guide / Manual"], ["training", "Tutorial"],
+  ["regulatory", "Standard / Spec"], ["risk_assessment", "Technical Analysis"],
 ];
-
-const SOURCES = [
-  ["superadmin", "Company (Superadmin)"],
-  ["base_corpus", "Global — base corpus (no jurisdiction)"],
-  ["regional_base", "Regional — jurisdiction-specific (requires jurisdiction)"],
-];
-
-const JURISDICTIONS = ["", "US", "UK", "EU", "AU", "IN", "CA", "GLOBAL"];
 
 export default function DocumentsPage() {
   const PAGE_SIZE = 100;
@@ -43,8 +34,8 @@ export default function DocumentsPage() {
   const cancelRequestedRef = useRef(false);
 
   const [form, setForm] = useState({
-    title: "", description: "", doc_type: "general", source: "superadmin",
-    tags: "", version: "", expiry_date: "", jurisdiction: "",
+    title: "", author: "", description: "", doc_type: "general",
+    tags: "", version: "", expiry_date: "",
   });
   const [replacingDoc, setReplacingDoc] = useState(null);
   // Concurrent-ingestion gating. Backend caps in-flight docs at 5 per scope;
@@ -216,13 +207,12 @@ export default function DocumentsPage() {
       fd.append("file", file);
       // For multi-file uploads, only apply the explicit title to the first file (or none) and let the backend infer from filename
       if (files.length === 1 && form.title) fd.append("title", form.title);
+      if (form.author) fd.append("author", form.author);
       if (form.description) fd.append("description", form.description);
       fd.append("doc_type", form.doc_type);
-      fd.append("source", form.source);
       if (form.tags) fd.append("tags", form.tags);
       if (form.version) fd.append("version", form.version);
       if (form.expiry_date) fd.append("expiry_date", form.expiry_date);
-      if (form.jurisdiction) fd.append("jurisdiction", form.jurisdiction);
       if (replacingDoc) fd.append("supersedes_id", replacingDoc.id);
 
       const controller = new AbortController();
@@ -256,7 +246,7 @@ export default function DocumentsPage() {
       );
       setOpen(false);
       setReplacingDoc(null);
-      setForm({ title: "", description: "", doc_type: "general", source: "superadmin", tags: "", version: "", expiry_date: "", jurisdiction: "" });
+      setForm({ title: "", author: "", description: "", doc_type: "general", tags: "", version: "", expiry_date: "" });
       if (fileRef.current) fileRef.current.value = "";
     } else {
       // Group failures by reason to surface useful guidance instead of one cryptic toast
@@ -287,12 +277,11 @@ export default function DocumentsPage() {
     setForm({
       ...form,
       title: doc.title || "",
+      author: doc.author || "",
       doc_type: doc.doc_type || "general",
-      source: doc.source || "superadmin",
       tags: (doc.tags || []).join(", "),
       version: "",
       expiry_date: "",
-      jurisdiction: doc.jurisdiction || "",
     });
     setOpen(true);
   };
@@ -324,7 +313,7 @@ export default function DocumentsPage() {
         <div>
           <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-slate-500 mb-2">Knowledge base</div>
           <h1 className="text-3xl sm:text-4xl font-black tracking-tighter text-slate-900 mb-1">Documents</h1>
-          <p className="text-slate-600 text-sm sm:text-base">Upload, classify and manage the EHS document corpus.</p>
+          <p className="text-slate-600 text-sm sm:text-base">Upload and manage the GIS reference book library.</p>
         </div>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
@@ -344,9 +333,9 @@ export default function DocumentsPage() {
           </DialogTrigger>
           <DialogContent className="max-w-xl w-[calc(100%-2rem)] rounded-sm border-slate-300 max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle className="font-bold tracking-tight">Upload EHS Document</DialogTitle>
+              <DialogTitle className="font-bold tracking-tight">Upload GIS Book</DialogTitle>
               <DialogDescription className="text-xs text-slate-500">
-                Upload a PDF, DOCX, XLSX, TXT, CSV or Markdown file. It will be parsed, classified and embedded into the knowledge base for retrieval.
+                Upload a PDF, DOCX, XLSX, TXT, CSV or Markdown file. It will be parsed, chunked and embedded into the GIS knowledge base. Add the author so answers can be cited properly.
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={upload} className="space-y-4" data-testid="upload-form">
@@ -366,7 +355,7 @@ export default function DocumentsPage() {
                 />
                 {!replacingDoc && (
                   <div className="text-[11px] text-slate-500 leading-snug">
-                    Bulk upload: hold <span className="font-mono font-semibold">Ctrl</span> / <span className="font-mono font-semibold">⌘</span> in the file picker to select up to <span className="font-mono font-semibold">{MAX_BATCH}</span> files at once. Settings (type, source, tags, jurisdiction) apply to every file in the batch.
+                    Bulk upload: hold <span className="font-mono font-semibold">Ctrl</span> / <span className="font-mono font-semibold">⌘</span> in the file picker to select up to <span className="font-mono font-semibold">{MAX_BATCH}</span> files at once. Settings (type, author, tags) apply to every file in the batch.
                     {selectedCount > 0 && (
                       <span className="ml-1 font-mono font-semibold text-slate-700">
                         · {selectedCount}/{MAX_BATCH} selected
@@ -388,15 +377,14 @@ export default function DocumentsPage() {
                   </Select>
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="font-mono text-xs uppercase tracking-wider">Source / Priority</Label>
-                  <Select value={form.source} onValueChange={(v) => setForm({ ...form, source: v })}>
-                    <SelectTrigger className="rounded-sm" data-testid="upload-source">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {SOURCES.map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
+                  <Label className="font-mono text-xs uppercase tracking-wider">Author</Label>
+                  <Input
+                    placeholder="e.g. Longley, Goodchild et al."
+                    value={form.author}
+                    onChange={(e) => setForm({ ...form, author: e.target.value })}
+                    className="rounded-sm border-slate-300"
+                    data-testid="upload-author"
+                  />
                 </div>
               </div>
               <div className="space-y-1.5">
@@ -406,12 +394,13 @@ export default function DocumentsPage() {
                   onChange={(e) => setForm({ ...form, title: e.target.value })}
                   className="rounded-sm border-slate-300"
                   data-testid="upload-title"
+                  placeholder="Defaults to the file name"
                 />
               </div>
               <div className="space-y-1.5">
                 <Label className="font-mono text-xs uppercase tracking-wider">Tags (comma-separated)</Label>
                 <Input
-                  placeholder="ISO 45001, chemical, confined space"
+                  placeholder="projections, remote sensing, cartography"
                   value={form.tags}
                   onChange={(e) => setForm({ ...form, tags: e.target.value })}
                   className="rounded-sm border-slate-300"
@@ -428,29 +417,15 @@ export default function DocumentsPage() {
                   data-testid="upload-description"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <Label className="font-mono text-xs uppercase tracking-wider">Expiry date (optional)</Label>
-                  <Input
-                    type="date"
-                    value={form.expiry_date}
-                    onChange={(e) => setForm({ ...form, expiry_date: e.target.value })}
-                    className="rounded-sm border-slate-300"
-                    data-testid="upload-expiry"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="font-mono text-xs uppercase tracking-wider">Jurisdiction (optional)</Label>
-                  <Select value={form.jurisdiction} onValueChange={(v) => setForm({ ...form, jurisdiction: v === "_none" ? "" : v })}>
-                    <SelectTrigger className="rounded-sm" data-testid="upload-jurisdiction">
-                      <SelectValue placeholder="—" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="_none">—</SelectItem>
-                      {JURISDICTIONS.filter(Boolean).map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
+              <div className="space-y-1.5">
+                <Label className="font-mono text-xs uppercase tracking-wider">Expiry date (optional)</Label>
+                <Input
+                  type="date"
+                  value={form.expiry_date}
+                  onChange={(e) => setForm({ ...form, expiry_date: e.target.value })}
+                  className="rounded-sm border-slate-300"
+                  data-testid="upload-expiry"
+                />
               </div>
               {replacingDoc && (
                 <div className="bg-amber-50 border border-amber-200 p-3 text-xs text-amber-900">
@@ -536,7 +511,7 @@ export default function DocumentsPage() {
             <tr>
               <th className="text-left px-3 py-2 border-b border-slate-300 font-mono text-[10px] uppercase tracking-wider text-slate-600">Title</th>
               <th className="text-left px-3 py-2 border-b border-slate-300 font-mono text-[10px] uppercase tracking-wider text-slate-600">Type</th>
-              <th className="text-left px-3 py-2 border-b border-slate-300 font-mono text-[10px] uppercase tracking-wider text-slate-600">Source</th>
+              <th className="text-left px-3 py-2 border-b border-slate-300 font-mono text-[10px] uppercase tracking-wider text-slate-600">Author</th>
               <th className="text-left px-3 py-2 border-b border-slate-300 font-mono text-[10px] uppercase tracking-wider text-slate-600">Status</th>
               <th className="text-left px-3 py-2 border-b border-slate-300 font-mono text-[10px] uppercase tracking-wider text-slate-600">Chunks</th>
               <th className="text-right px-3 py-2 border-b border-slate-300 font-mono text-[10px] uppercase tracking-wider text-slate-600">Actions</th>
@@ -561,9 +536,7 @@ export default function DocumentsPage() {
                   </span>
                 </td>
                 <td className="px-3 py-2.5">
-                  <span className="font-mono text-[10px] uppercase tracking-wider px-1.5 py-0.5 bg-slate-100 border border-slate-200 text-slate-700">
-                    {d.source}
-                  </span>
+                  <span className="text-xs text-slate-700 truncate block max-w-[180px]">{d.author || "—"}</span>
                 </td>
                 <td className="px-3 py-2.5">
                   <StatusBadge doc={d} />

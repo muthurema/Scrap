@@ -51,7 +51,7 @@ export default function AdminLayout() {
           <div className="min-w-0">
             <div className="flex items-center gap-2 mb-1">
               <Logo size={32} />
-              <div className="font-bold tracking-tight text-slate-900 truncate">EHS Admin</div>
+              <div className="font-bold tracking-tight text-slate-900 truncate">CIDSA Admin</div>
             </div>
             <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-slate-500">Control Room</div>
           </div>

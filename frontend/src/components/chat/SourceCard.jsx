@@ -24,7 +24,10 @@ export function SourceCard({ index, src, onOpen }) {
           {(src.similarity_score * 100).toFixed(0)}%
         </div>
       </div>
-      <div className="font-semibold text-sm leading-tight text-slate-900 mb-2 line-clamp-2 group-hover:underline group-hover:decoration-slate-900 group-hover:underline-offset-2">{src.title}</div>
+      <div className="font-semibold text-sm leading-tight text-slate-900 mb-1 line-clamp-2 group-hover:underline group-hover:decoration-slate-900 group-hover:underline-offset-2">{src.title}</div>
+      {src.author && (
+        <div className="text-[11px] text-slate-500 italic mb-2 truncate" data-testid={`source-author-${index}`}>by {src.author}</div>
+      )}
       <div className="flex flex-wrap gap-1 mb-2">
         <span className={`text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 ${label.color}`}>{label.text}</span>
         <span className="text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 bg-slate-100 border border-slate-200 text-slate-700">
@@ -70,7 +73,8 @@ export function SourceInner({ src }) {
           {(src.similarity_score * 100).toFixed(0)}% match
         </span>
       </div>
-      <div className="font-semibold text-sm text-slate-900 mb-2">{src.title}</div>
+      <div className="font-semibold text-sm text-slate-900 mb-1">{src.title}</div>
+      {src.author && <div className="text-[11px] text-slate-500 italic mb-2">by {src.author}</div>}
       <div className="text-xs text-slate-600 leading-relaxed max-h-48 overflow-y-auto">{src.chunk_text}</div>
       {lu && !isNaN(lu) && (
         <div className="font-mono text-[9px] uppercase tracking-wider text-slate-400 mt-2">
