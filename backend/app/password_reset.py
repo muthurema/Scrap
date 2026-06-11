@@ -161,7 +161,7 @@ def _send_smtp_sync(to_email: str, subject: str, html_body: str, text_body: str)
 
 
 async def send_reset_email(to_email: str, reset_url: str, expires_min: int) -> None:
-    subject = "Reset your EHS RAG password"
+    subject = "Reset your CIDSA RAG password"
     text_body = (
         f"Hi,\n\n"
         f"We received a request to reset the password for this email address. "
@@ -170,16 +170,16 @@ async def send_reset_email(to_email: str, reset_url: str, expires_min: int) -> N
         f"{reset_url}\n\n"
         f"If you didn't request this, you can safely ignore this email — "
         f"your password will not change.\n\n"
-        f"— EHS RAG"
+        f"— CIDSA RAG"
     )
     html_body = f"""\
 <!doctype html>
 <html><body style="font-family: system-ui, -apple-system, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; color: #1e293b;">
-  <div style="font-size: 12px; letter-spacing: 0.18em; text-transform: uppercase; color: #64748b; margin-bottom: 8px;">EHS RAG</div>
+  <div style="font-size: 12px; letter-spacing: 0.18em; text-transform: uppercase; color: #64748b; margin-bottom: 8px;">CIDSA RAG</div>
   <h1 style="font-size: 22px; font-weight: 700; margin: 0 0 16px;">Reset your password</h1>
   <p style="line-height: 1.6;">We received a request to reset the password for this email address. Click the button below to set a new password — it expires in <strong>{expires_min} minutes</strong>.</p>
   <p style="margin: 32px 0;">
-    <a href="{reset_url}" style="background: #0f172a; color: #ffffff; padding: 12px 24px; text-decoration: none; font-weight: 600; display: inline-block;">Set new password</a>
+    <a href="{reset_url}" style="background: #059669; color: #ffffff; padding: 12px 24px; text-decoration: none; font-weight: 600; display: inline-block;">Set new password</a>
   </p>
   <p style="font-size: 12px; color: #64748b; line-height: 1.6;">Or paste this link into your browser:<br><span style="word-break: break-all;">{reset_url}</span></p>
   <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 32px 0;">
