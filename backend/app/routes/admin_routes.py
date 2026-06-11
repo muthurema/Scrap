@@ -269,9 +269,9 @@ async def smtp_test(
         await _asyncio.to_thread(
             _send_smtp_sync,
             to,
-            "EHS RAG — SMTP test",
-            "<p>This is a test email from your EHS RAG instance.</p>",
-            "This is a test email from your EHS RAG instance.\n",
+            "CIDSA RAG — SMTP test",
+            "<p>This is a test email from your CIDSA RAG instance.</p>",
+            "This is a test email from your CIDSA RAG instance.\n",
         )
     except Exception as e:
         return {
