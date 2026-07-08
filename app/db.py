@@ -9,6 +9,7 @@ from datetime import datetime
 DATA_DIR = os.environ.get("SAFETYWATCH_DATA", "data")
 DB_PATH = os.path.join(DATA_DIR, "safetywatch.db")
 SNAPSHOT_DIR = os.path.join(DATA_DIR, "snapshots")
+UPLOAD_DIR = os.path.join(DATA_DIR, "uploads")
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS cameras (
@@ -55,6 +56,7 @@ def _conn():
 
 def init_db():
     os.makedirs(SNAPSHOT_DIR, exist_ok=True)
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
     with _conn() as con:
         con.executescript(_SCHEMA)
 

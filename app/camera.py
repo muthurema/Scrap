@@ -115,6 +115,7 @@ class CameraStream:
             return
 
         resolved = _resolve_source(self.camera["source"], self.camera["source_type"])
+        is_file = self.camera["source_type"] == "file"
         while not self._stop.is_set():
             cap = cv2.VideoCapture(resolved)
             if self.camera["source_type"] in ("rtsp", "http"):
@@ -128,10 +129,20 @@ class CameraStream:
                 continue
             self.connected = True
             self.error = ""
+            # Uploaded/test videos: pace playback at the file's real FPS and
+            # loop forever so they behave like a live camera.
+            frame_delay = 0.0
+            if is_file:
+                fps = cap.get(cv2.CAP_PROP_FPS)
+                frame_delay = 1.0 / fps if fps and fps > 0 else 1.0 / 25
             failures = 0
             while not self._stop.is_set():
                 ok, frame = cap.read()
                 if not ok or frame is None:
+                    if is_file and failures < 3:
+                        failures += 1
+                        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)  # loop the video
+                        continue
                     failures += 1
                     if failures > 25:  # stream died — reconnect
                         self.connected = False
@@ -140,11 +151,8 @@ class CameraStream:
                     time.sleep(0.05)
                     continue
                 failures = 0
-                # Loop video files for continuous testing.
-                if self.camera["source_type"] == "file":
-                    pass
                 with self._lock:
                     self._frame = frame
+                if frame_delay:
+                    time.sleep(frame_delay)
             cap.release()
-            if self.camera["source_type"] == "file" and not self._stop.is_set():
-                continue  # restart the file from the beginning

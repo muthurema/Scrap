@@ -37,7 +37,9 @@ streamlit run streamlit_app.py
 1. Sign in with the default password `admin123` (then change it in **Settings**).
 2. **Camera administration** → *Add a new camera*. For an IP camera use its
    RTSP URL, e.g. `rtsp://user:password@192.168.1.64:554/Streaming/Channels/101`.
-   No camera handy? Pick the **built-in demo feed**.
+   No camera handy? Pick the **built-in demo feed**, or use
+   **⬆️ Upload a test video** to test detection on recorded footage — the
+   clip loops continuously at real speed, just like a live camera.
 3. Click **Test connection** — you'll get a live snapshot if the camera is
    reachable, or a clear error if not.
 4. For stairway cameras, open the **Handrail zone** tab, enable monitoring and

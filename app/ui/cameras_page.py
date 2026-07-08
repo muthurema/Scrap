@@ -1,12 +1,16 @@
 """Admin page: register CCTV cameras, verify connections, configure zones."""
 
 import json
+import os
+import time
 
 import cv2
 import streamlit as st
 
 from app import db
 from app.camera import verify_connection
+
+VIDEO_EXTENSIONS = ["mp4", "avi", "mov", "mkv", "webm", "m4v", "mpg", "mpeg", "wmv"]
 
 SOURCE_TYPES = {
     "rtsp": "RTSP stream (IP camera / NVR)",
@@ -130,6 +134,38 @@ def render():
                     db.set_camera_status(cam_id, "online" if ok else f"offline: {message}")
                 st.success(f"Camera **{name}** added.")
                 st.rerun()
+
+    # --------------------------------------------------- upload test video
+    with st.expander("⬆️ Upload a test video"):
+        st.markdown(
+            "Upload recorded footage (e.g. a clip from your site) to test detection "
+            "without a live camera. The video is registered as a camera source and "
+            "**loops continuously at real speed** during monitoring, just like a live feed.")
+        with st.form("upload_video", clear_on_submit=True):
+            up_name = st.text_input("Camera name *", placeholder="Test video — stairway clip")
+            up_file = st.file_uploader("Video file *", type=VIDEO_EXTENSIONS)
+            up_submitted = st.form_submit_button("Upload & add as camera", type="primary")
+        if up_submitted:
+            if not up_name or up_file is None:
+                st.error("Name and a video file are required.")
+            else:
+                base = "".join(c if c.isalnum() or c in "._-" else "_" for c in up_file.name)
+                dest = os.path.join(db.UPLOAD_DIR, f"{int(time.time())}_{base}")
+                os.makedirs(db.UPLOAD_DIR, exist_ok=True)
+                with open(dest, "wb") as f:
+                    f.write(up_file.getbuffer())
+                ok, message, frame = verify_connection(dest, "file")
+                if ok:
+                    cam_id = db.add_camera(up_name, dest, "file", "uploaded test video")
+                    db.set_camera_status(cam_id, "online")
+                    st.success(f"Video uploaded and camera **{up_name}** added — {message}")
+                    if frame is not None:
+                        st.image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB),
+                                 caption="First frame of the uploaded video", width=420)
+                else:
+                    os.unlink(dest)
+                    st.error(f"Could not read the uploaded video ({message}). "
+                             "Try MP4 (H.264) — it's the most compatible format.")
 
     # --------------------------------------------------------- camera list
     cameras = db.list_cameras()
