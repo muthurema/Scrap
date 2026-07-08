@@ -45,22 +45,31 @@ streamlit run streamlit_app.py
 5. Open **Live monitoring** and press **Start**. Keep the tab open and
    unmuted at the operator station — voice alerts play there instantly.
 
-## PPE model weights
+## Detection models
 
-Helmet/vest detection needs a YOLO model trained on PPE data. Place the
-weights at `models/ppe.pt` (path configurable in Settings). Class names are
-matched by keyword, so any of the popular public models work, e.g.:
+Models are **downloaded from within the app** — no manual setup needed
+(internet required once):
 
-- Roboflow *Construction Site Safety* YOLOv8 models
-  (classes `Hardhat`, `NO-Hardhat`, `Safety Vest`, `NO-Safety Vest`, ...)
-- Hugging Face hard-hat detection YOLOv8 checkpoints
-- Your own model trained with `ultralytics` on your site's footage
-  (recommended for best accuracy)
+- **Settings → Detection → “⬇️ Download PPE model”** fetches a public
+  YOLOv8 PPE checkpoint (hard-hat detection by keremberke on Hugging Face;
+  small/medium variants and a multi-class protective-equipment model are
+  offered) and saves it to `models/ppe.pt`.
+- The **Live monitoring** page shows a *“Download missing detection models
+  now”* button whenever a model is absent.
+- The pose model for handrail detection (`yolov8n-pose.pt`) is fetched
+  automatically by `ultralytics` on first use (with an explicit download
+  button in Settings as fallback).
 
-The handrail feature uses `yolov8n-pose.pt`, which ultralytics downloads
-automatically on first use. Without any model files the app still runs
-(camera admin, verification, demo feed) — detection simply reports itself
-as unavailable on the monitoring page.
+You can also bring your own weights: place any YOLO model trained on a
+PPE / construction-safety dataset at `models/ppe.pt` (path configurable in
+Settings). Class names are matched by keyword (`NO-Hardhat`,
+`NO-Safety Vest`, `NO-Mask`, ...), so popular public datasets — e.g.
+Roboflow's *Construction Site Safety* — work as-is, and a model trained on
+your own site's footage will give the best accuracy.
+
+Without model files the app still runs (camera admin, connection
+verification, demo feed) — detection simply reports itself as unavailable
+on the monitoring page instead of crashing.
 
 ## Architecture
 

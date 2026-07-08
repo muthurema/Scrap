@@ -53,6 +53,17 @@ def render():
     st.markdown(" · ".join(caps))
     for note in engine.status_notes:
         st.warning(note)
+    if not engine.ppe_available or not engine.pose_available:
+        if st.button("⬇️ Download missing detection models now"):
+            from app.detection import download as model_dl
+            with st.spinner("Downloading model weights ..."):
+                results = model_dl.ensure_models(
+                    db.get_setting("ppe_model_path", "models/ppe.pt"))
+            for label, ok, msg in results:
+                (st.success if ok else st.error)(f"{label}: {msg}")
+            if all(ok for _, ok, _ in results):
+                st.session_state.pop("engine", None)
+                st.rerun()
 
     names = {c["id"]: f"{c['name']}{' (' + c['location'] + ')' if c['location'] else ''}"
              for c in cameras}

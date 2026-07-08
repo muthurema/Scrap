@@ -5,6 +5,7 @@ import os
 import streamlit as st
 
 from app import alerts, auth, db
+from app.detection import download as model_dl
 from app.detection.engine import VIOLATION_TYPES
 
 
@@ -45,12 +46,40 @@ def render():
     ppe_path = st.text_input("PPE model weights path",
                              db.get_setting("ppe_model_path", "models/ppe.pt"),
                              help="YOLO model trained on a PPE / construction-safety "
-                                  "dataset. See the README for download options.")
+                                  "dataset. Download one below or bring your own.")
     if os.path.exists(ppe_path):
-        st.success("PPE model file found ✅")
+        st.success(f"PPE model file found ✅ ({os.path.getsize(ppe_path) / 1e6:.1f} MB)")
     else:
-        st.warning("File not found — helmet/vest detection will be disabled until "
-                   "weights are placed at this path.")
+        st.warning("No PPE model yet — helmet detection is disabled. Download one below "
+                   "(needs internet) or place your own weights at this path.")
+        choice = st.selectbox(
+            "Model to download", list(model_dl.PPE_MODEL_CHOICES),
+            format_func=lambda k: model_dl.PPE_MODEL_CHOICES[k]["label"])
+        if st.button("⬇️ Download PPE model", type="primary"):
+            bar = st.progress(0.0, "Downloading model weights ...")
+            ok, msg = model_dl.download_ppe_model(
+                choice, ppe_path, progress_cb=lambda f: bar.progress(f))
+            bar.empty()
+            if ok:
+                st.session_state.pop("engine", None)
+                st.success(msg)
+                st.rerun()
+            else:
+                st.error(msg)
+
+    if not os.path.exists("yolov8n-pose.pt"):
+        st.caption("The pose model for handrail detection (`yolov8n-pose.pt`) is fetched "
+                   "automatically by ultralytics on first monitoring start.")
+        if st.button("⬇️ Download pose model now"):
+            bar = st.progress(0.0, "Downloading pose model ...")
+            ok, msg = model_dl.download_pose_model(progress_cb=lambda f: bar.progress(f))
+            bar.empty()
+            if ok:
+                st.session_state.pop("engine", None)
+                st.success(msg)
+                st.rerun()
+            else:
+                st.error(msg)
     confidence = st.slider("Minimum detection confidence", 0.1, 0.9,
                            float(db.get_setting("confidence", 0.45)), 0.05)
     if st.button("💾 Save detection settings"):
